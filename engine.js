@@ -9,7 +9,7 @@
  * ⚠️ 部分函数尚未实现 —— 结算相关函数仍为签名骨架。
  */
 
-import { ROLE_MAP, STEP_META } from './roles.js';
+import { ROLE_MAP, STEP_META, CAMP } from './roles.js';
 
 /**
  * 天亮结算。SPEC §5.1
@@ -190,8 +190,81 @@ export function cascadeDeaths(state, newDeaths) {
  * @param {number[]} targets
  * @returns {{ known: boolean, result?: string, detail?: string }}
  */
-export function computeStepInfo(state, stepId, targets) {
-  throw new Error('未实现');
+export function computeStepInfo(state, stepId, targets = []) {
+  const meta = STEP_META[stepId];
+  if (!meta?.info) return { known: false };
+
+  switch (meta.info) {
+    case 'camp': {
+      const role = roleOfSeat(state, targets[0]);
+      if (!role) return { known: false };
+      // 隐狼不与狼队睁眼，预言家按房规默认将其查验为好人（SPEC §9）。
+      const camp = role.id === 'hiddenwolf' || role.camp !== CAMP.WOLF ? '好人' : '狼人';
+      return { known: true, result: camp };
+    }
+
+    case 'exactRole': {
+      const role = roleOfSeat(state, targets[0]);
+      if (!role) return { known: false };
+      return { known: true, result: role.name };
+    }
+
+    case 'lastLynchedRole': {
+      const lynched = state.players.find(p =>
+        p.deathDay === state.day - 1 && p.deathPhase === 'day' && p.deathReason === '被投票');
+      if (!lynched) return { known: false };
+      const role = roleOfSeat(state, lynched.seat);
+      if (!role) return { known: false };
+      return { known: true, result: role.name, seat: lynched.seat };
+    }
+
+    case 'nightDeath': {
+      const seat = state.nightActions.wolfTarget;
+      if (seat == null) return { known: false };
+      return { known: true, result: `${seat}号`, seat };
+    }
+
+    case 'foxCheck': {
+      const start = targets[0];
+      if (start == null) return { known: false };
+      const chain = [start];
+      let cur = start;
+      for (let i = 0; i < 2; i++) {
+        cur = nextAliveSeat(state, cur, 1);
+        if (cur == null) return { known: false };
+        chain.push(cur);
+      }
+      let hasWolf = false;
+      for (const seat of chain) {
+        const role = roleOfSeat(state, seat);
+        if (!role) return { known: false };
+        if (role.camp === CAMP.WOLF) hasWolf = true;
+      }
+      return {
+        known: true,
+        result: hasWolf ? '有狼人' : '无狼人',
+        hasWolf,
+        disablesFox: !hasWolf,
+        chain,
+      };
+    }
+
+    case 'bearGrowl': {
+      const growl = bearGrowls(state);
+      if (growl === 'unknown') return { known: false };
+      return { known: true, result: growl ? '应咆哮' : '不咆哮', growl };
+    }
+
+    default:
+      return { known: false };
+  }
+}
+
+function roleOfSeat(state, seat) {
+  const p = state.players.find(p => p.seat === seat);
+  if (!p) return null;
+  const roleId = p.effectiveRoleId ?? p.roleId;
+  return roleId ? ROLE_MAP[roleId] : null;
 }
 
 /**
@@ -203,7 +276,22 @@ export function computeStepInfo(state, stepId, targets) {
  * @returns {true | false | 'unknown'}
  */
 export function bearGrowls(state) {
-  throw new Error('未实现');
+  const bear = state.players.find(p =>
+    p.alive && ROLE_MAP[p.effectiveRoleId ?? p.roleId]?.nightStep === 'bear');
+  if (!bear) return false;
+
+  const left = nextAliveSeat(state, bear.seat, -1);
+  const right = nextAliveSeat(state, bear.seat, 1);
+  const neighbors = new Set([left, right].filter(s => s != null && s !== bear.seat));
+  if (neighbors.size === 0) return false;
+
+  let anyUnknown = false;
+  for (const seat of neighbors) {
+    const role = roleOfSeat(state, seat);
+    if (!role) { anyUnknown = true; continue; }
+    if (role.camp === CAMP.WOLF) return true;
+  }
+  return anyUnknown ? 'unknown' : false;
 }
 
 /**
@@ -216,7 +304,45 @@ export function bearGrowls(state) {
  * @returns {Array<{type:string, text:string}>}
  */
 export function validateAction(state, stepId, action) {
-  throw new Error('未实现');
+  const warnings = [];
+
+  if (stepId === 'guard') {
+    if (action.target != null && action.target === state.lastGuardTarget
+        && !state.rules.guardRepeatAllowed) {
+      warnings.push({
+        type: 'guardRepeat',
+        text: `守卫连续两晚守护 ${action.target}号，当前规则不允许连守`,
+      });
+    }
+  }
+
+  if (stepId === 'witch') {
+    const witchSeat = findRoleActorSeat(state, 'witch');
+
+    if (action.type === 'save' && witchSeat != null && action.target === witchSeat) {
+      const mode = state.rules.witchSelfSave;
+      if (mode === 'never' || (mode === 'firstNightOnly' && state.day !== 1)) {
+        warnings.push({ type: 'witchSelfSave', text: '女巫自救不符合当前规则设置' });
+      }
+    }
+
+    // 数据模型中 nightActions.witchAction 为单槽（SPEC §3.3），此处比较本夜
+    // 已记录的上一次行动与本次提议的行动，判断是否同夜使用了两瓶药。
+    if ((action.type === 'save' || action.type === 'poison') && !state.rules.witchBothPotions) {
+      const prior = state.nightActions.witchAction;
+      if (prior && prior.type && prior.type !== 'skip' && prior.type !== action.type) {
+        warnings.push({ type: 'witchBothPotions', text: '女巫同一夜使用了解药与毒药，当前规则不允许双药同用' });
+      }
+    }
+  }
+
+  return warnings;
+}
+
+function findRoleActorSeat(state, stepId) {
+  const p = state.players.find(p =>
+    p.alive && ROLE_MAP[p.effectiveRoleId ?? p.roleId]?.nightStep === stepId);
+  return p ? p.seat : null;
 }
 
 /**

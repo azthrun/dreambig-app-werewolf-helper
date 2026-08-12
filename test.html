@@ -346,10 +346,38 @@ test('9. 守卫连守违规 → 触发警告但不阻断', () => {
   throw new Error('PENDING');
 });
 
-test('10a. 熊咆哮：邻座为狼 → true', () => { throw new Error('PENDING'); });
-test('10b. 熊咆哮：邻座非狼 → false', () => { throw new Error('PENDING'); });
-test('10c. 熊咆哮：跨越死者取最近存活邻座', () => { throw new Error('PENDING'); });
-test('10d. 熊咆哮：邻座身份未知 → unknown', () => { throw new Error('PENDING'); });
+test('10a. 熊咆哮：邻座为狼 → true', () => {
+  const state = makeState({
+    playerCount: 3,
+    roles: { 1: 'wolf', 2: 'bear', 3: 'villager' },
+  });
+  assert(bearGrowls(state) === true, `期望 true，实际 ${bearGrowls(state)}`);
+});
+
+test('10b. 熊咆哮：邻座非狼 → false', () => {
+  const state = makeState({
+    playerCount: 3,
+    roles: { 1: 'villager', 2: 'bear', 3: 'villager' },
+  });
+  assert(bearGrowls(state) === false, `期望 false，实际 ${bearGrowls(state)}`);
+});
+
+test('10c. 熊咆哮：跨越死者取最近存活邻座', () => {
+  const state = makeState({
+    playerCount: 5,
+    roles: { 1: 'wolf', 2: 'villager', 3: 'bear', 4: 'villager', 5: 'villager' },
+    alive: { 2: false },
+  });
+  assert(bearGrowls(state) === true, `期望 true（跨过死者2号取到1号狼人），实际 ${bearGrowls(state)}`);
+});
+
+test('10d. 熊咆哮：邻座身份未知 → unknown', () => {
+  const state = makeState({
+    playerCount: 3,
+    roles: { 2: 'bear', 3: 'villager' }, // 座位1未分配身份
+  });
+  assert(bearGrowls(state) === 'unknown', `期望 unknown，实际 ${bearGrowls(state)}`);
+});
 
 test('11. 连锁收敛：循环情侣链不产生死循环', () => {
   const state = makeState({
@@ -367,6 +395,143 @@ test('11. 连锁收敛：循环情侣链不产生死循环', () => {
     { seat: 2, reason: '殉情' },
     { seat: 3, reason: '殉情' },
   ]);
+});
+
+// ── computeStepInfo / validateAction（issue #6 范围）──────────────────
+
+test('computeStepInfo camp: 查验狼人 → 狼人', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'seer', 2: 'wolf', 3: 'villager' } });
+  const info = computeStepInfo(state, 'seer', [2]);
+  assert(info.known === true && info.result === '狼人', `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo camp: 查验隐狼 → 按房规判为好人', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'seer', 2: 'hiddenwolf', 3: 'villager' } });
+  const info = computeStepInfo(state, 'seer', [2]);
+  assert(info.known === true && info.result === '好人', `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo camp: 目标身份未知 → known:false', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'seer' } });
+  const info = computeStepInfo(state, 'seer', [2]);
+  assert(info.known === false, `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo exactRole: 通灵师查验精确身份', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'psychic', 2: 'witch', 3: 'villager' } });
+  const info = computeStepInfo(state, 'psychic', [2]);
+  assert(info.known === true && info.result === '女巫', `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo lastLynchedRole: 自动识别昨日被放逐者', () => {
+  const state = makeState({
+    playerCount: 3,
+    roles: { 1: 'gravekeeper', 2: 'wolf', 3: 'villager' },
+    day: 2,
+    players: { 2: { alive: false, deathDay: 1, deathPhase: 'day', deathReason: '被投票' } },
+  });
+  const info = computeStepInfo(state, 'gravekeeper', []);
+  assert(info.known === true && info.result === '普通狼人', `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo lastLynchedRole: 无人被放逐 → known:false', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'gravekeeper' }, day: 2 });
+  const info = computeStepInfo(state, 'gravekeeper', []);
+  assert(info.known === false, `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo nightDeath: 显示今晚狼刀目标', () => {
+  const state = makeState({
+    playerCount: 3, roles: { 1: 'witch', 2: 'wolf', 3: 'villager' },
+    nightActions: { wolfTarget: 3 },
+  });
+  const info = computeStepInfo(state, 'witch', []);
+  assert(info.known === true && info.seat === 3, `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo foxCheck: 三连查验存在狼人', () => {
+  const state = makeState({
+    playerCount: 5,
+    roles: { 1: 'fox', 2: 'villager', 3: 'wolf', 4: 'villager', 5: 'villager' },
+  });
+  const info = computeStepInfo(state, 'fox', [2]);
+  assert(info.known === true && info.hasWolf === true && info.disablesFox === false,
+    `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo foxCheck: 三连无狼人 → 驱动技能永久失效', () => {
+  const state = makeState({
+    playerCount: 5,
+    roles: { 1: 'fox', 2: 'villager', 3: 'seer', 4: 'villager', 5: 'villager' },
+  });
+  const info = computeStepInfo(state, 'fox', [2]);
+  assert(info.known === true && info.hasWolf === false && info.disablesFox === true,
+    `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo foxCheck: 三连中有身份未知 → known:false', () => {
+  const state = makeState({
+    playerCount: 5,
+    roles: { 1: 'fox', 2: 'villager', 4: 'villager', 5: 'villager' }, // 座位3未分配
+  });
+  const info = computeStepInfo(state, 'fox', [2]);
+  assert(info.known === false, `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo bearGrowl: 应咆哮', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'wolf', 2: 'bear', 3: 'villager' } });
+  const info = computeStepInfo(state, 'bear', []);
+  assert(info.known === true && info.growl === true, `实际 ${JSON.stringify(info)}`);
+});
+
+test('validateAction: 守卫连守 → 警告但不阻断', () => {
+  const state = makeState({
+    playerCount: 3, roles: { 1: 'guard' }, lastGuardTarget: 2,
+  });
+  const warnings = validateAction(state, 'guard', { target: 2 });
+  assert(warnings.length === 1 && warnings[0].type === 'guardRepeat', `实际 ${JSON.stringify(warnings)}`);
+});
+
+test('validateAction: 守卫更换目标不触发连守警告', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'guard' }, lastGuardTarget: 2 });
+  const warnings = validateAction(state, 'guard', { target: 3 });
+  assert(warnings.length === 0, `实际 ${JSON.stringify(warnings)}`);
+});
+
+test('validateAction: 女巫自救（firstNightOnly）首夜允许，无警告', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'witch' }, day: 1 });
+  const warnings = validateAction(state, 'witch', { type: 'save', target: 1 });
+  assert(warnings.length === 0, `实际 ${JSON.stringify(warnings)}`);
+});
+
+test('validateAction: 女巫自救（firstNightOnly）非首夜 → 警告', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'witch' }, day: 2 });
+  const warnings = validateAction(state, 'witch', { type: 'save', target: 1 });
+  assert(warnings.some(w => w.type === 'witchSelfSave'), `实际 ${JSON.stringify(warnings)}`);
+});
+
+test('validateAction: 女巫自救（never）→ 任何夜都警告', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'witch' }, day: 1, rules: { witchSelfSave: 'never' } });
+  const warnings = validateAction(state, 'witch', { type: 'save', target: 1 });
+  assert(warnings.some(w => w.type === 'witchSelfSave'), `实际 ${JSON.stringify(warnings)}`);
+});
+
+test('validateAction: 女巫同夜双药（默认不可）→ 警告', () => {
+  const state = makeState({
+    playerCount: 3, roles: { 1: 'witch' },
+    nightActions: { witchAction: { type: 'save', target: 2 } },
+  });
+  const warnings = validateAction(state, 'witch', { type: 'poison', target: 3 });
+  assert(warnings.some(w => w.type === 'witchBothPotions'), `实际 ${JSON.stringify(warnings)}`);
+});
+
+test('validateAction: 女巫同夜双药（开关允许）→ 无警告', () => {
+  const state = makeState({
+    playerCount: 3, roles: { 1: 'witch' }, rules: { witchBothPotions: true },
+    nightActions: { witchAction: { type: 'save', target: 2 } },
+  });
+  const warnings = validateAction(state, 'witch', { type: 'poison', target: 3 });
+  assert(warnings.length === 0, `实际 ${JSON.stringify(warnings)}`);
 });
 
 // ── 汇总 ──────────────────────────────────────────────────────────
