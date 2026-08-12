@@ -6,8 +6,10 @@
  * 这是全项目最需要正确性保证的部分 —— 此处的 bug 会静默污染实时对局。
  * 所有导出函数须由 test.html 覆盖（SPEC §18）。
  *
- * ⚠️ 尚未实现 —— 仅为签名骨架。
+ * ⚠️ 部分函数尚未实现 —— 结算相关函数仍为签名骨架。
  */
+
+import { ROLE_MAP, STEP_META } from './roles.js';
 
 /**
  * 天亮结算。SPEC §5.1
@@ -120,7 +122,23 @@ export function validateAction(state, stepId, action) {
  * @returns {string[]} stepId 序列
  */
 export function activeNightSteps(state) {
-  throw new Error('未实现');
+  return state.nightOrder.filter(stepId => {
+    const meta = STEP_META[stepId];
+    if (!meta) return false;
+    if (meta.firstNightOnly && state.day !== 1) return false;
+
+    const actor = state.players.find(p => {
+      if (!p.alive) return false;
+      const role = ROLE_MAP[p.effectiveRoleId ?? p.roleId];
+      return role?.nightStep === stepId;
+    });
+    if (!actor) return false;
+
+    if (stepId === 'witch' && !actor.skills.antidote && !actor.skills.poison) return false;
+    if (stepId === 'fox' && actor.flags.foxDisabled) return false;
+
+    return true;
+  });
 }
 
 /**
@@ -129,7 +147,18 @@ export function activeNightSteps(state) {
  * @returns {{ wolf:number, god:number, civ:number, unknown:number }}
  */
 export function campCounts(state) {
-  throw new Error('未实现');
+  const counts = { wolf: 0, god: 0, civ: 0, unknown: 0 };
+  for (const p of state.players) {
+    if (!p.alive) continue;
+    const roleId = p.effectiveRoleId ?? p.roleId;
+    const role = roleId ? ROLE_MAP[roleId] : null;
+    if (!role) {
+      counts.unknown++;
+    } else {
+      counts[role.camp]++;
+    }
+  }
+  return counts;
 }
 
 /**
@@ -137,10 +166,21 @@ export function campCounts(state) {
  * 使用 crypto.getRandomValues。仅在存活玩家中抽取。
  *
  * @param {GameState} state
- * @returns {{ seat:number, direction:1|-1 }}
+ * @returns {?{ seat:number, direction:1|-1 }}
  */
 export function pickFirstSpeaker(state) {
-  throw new Error('未实现');
+  const aliveSeats = state.players.filter(p => p.alive).map(p => p.seat);
+  if (aliveSeats.length === 0) return null;
+
+  const seat = aliveSeats[randomIndex(aliveSeats.length)];
+  const direction = randomIndex(2) === 0 ? 1 : -1;
+  return { seat, direction };
+}
+
+function randomIndex(exclusiveMax) {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return buf[0] % exclusiveMax;
 }
 
 /**
@@ -151,5 +191,15 @@ export function pickFirstSpeaker(state) {
  * @returns {?number}
  */
 export function nextAliveSeat(state, fromSeat, direction) {
-  throw new Error('未实现');
+  const n = state.players.length;
+  if (n === 0) return null;
+
+  const wrap = seat => ((seat - 1) % n + n) % n + 1;
+
+  for (let i = 1; i <= n; i++) {
+    const seat = wrap(fromSeat + direction * i);
+    const player = state.players.find(p => p.seat === seat);
+    if (player && player.alive) return seat;
+  }
+  return null;
 }
