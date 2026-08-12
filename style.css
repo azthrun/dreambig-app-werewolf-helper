@@ -433,9 +433,14 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: var(--tap-min);
   height: var(--tap-min);
+  border: none;
+  background: transparent;
   color: var(--color-neutral-500);
+  font-size: 18px;
+  line-height: 1;
   cursor: grab;
   touch-action: none;
 }
@@ -456,6 +461,45 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   transition: height .15s ease;
 }
 .drop-gap.is-active { height: 44px; }
+
+.reorder-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.reorder-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 2px solid var(--color-divider);
+  background: var(--color-surface);
+  padding: 0 var(--space-2);
+}
+.reorder-item .input { flex: 1 1 auto; min-width: 0; }
+.reorder-item-label { flex: 1 1 auto; font-size: 14px; font-weight: 700; }
+.reorder-item .player-card-seat { flex: 0 0 auto; }
+
+.name-row { flex-wrap: wrap; }
+.name-pool-chips {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: 0 0 var(--space-2) calc(var(--tap-min) + var(--space-2));
+}
+.name-pool-chips[hidden] { display: none; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 2px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-200);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.chip:hover { background: var(--color-neutral-300); }
 
 /* ══════════════════════════════════════════════════════════════════
    内联横幅                                    SPEC §8.1 / §11.1
@@ -538,6 +582,35 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   gap: var(--space-3);
   padding-top: var(--space-2);
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   设置向导 —— Step 3 骨架（夜晚顺序 / 计时 / 高级规则） SPEC §4.1 / §7
+   ══════════════════════════════════════════════════════════════════ */
+.advanced-rules {
+  border: 2px solid var(--color-divider);
+  padding: var(--space-3);
+}
+.advanced-rules summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.advanced-rules summary::-webkit-details-marker { color: var(--color-neutral-600); }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+.toggle-row:last-child { border-bottom: none; }
+.toggle-row-label { font-size: 13px; }
+
+.switch { display: inline-flex; align-items: center; }
+.switch input { width: 20px; height: 20px; accent-color: var(--color-accent); cursor: pointer; }
+
+.segmented { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 
 /* ══════════════════════════════════════════════════════════════════
    设置向导 —— Step 4 身份分配                 SPEC §4.1 / §8.4
