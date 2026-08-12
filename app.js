@@ -103,6 +103,10 @@ let nightStepTargets = [];         // 当前步骤已点选的目标座位（非
 let witchChoice = null;            // 'save' | 'poison' | 'skip' | null —— 女巫本步骤已选择的行动
 let witchPoisonTarget = null;      // 女巫「使用毒药」已点选的目标座位
 
+// ── 日志页 —— 筛选与分组展开，纯 UI 瞬态，不入 GameState/撤销栈。SPEC §16.2 ──
+let logFilter = 'all';             // 'all' | 'death' | 'skill' | 'note'
+let logGroupOpen = {};             // 分组 key（`${day}-${phase}`）-> 是否展开，未记录时默认「当前阶段展开」
+
 let undoBarTimer = null;           // 撤销条自动隐藏定时器
 let wakeLockSentinel = null;       // Screen Wake Lock 句柄
 
@@ -829,19 +833,123 @@ function renderWitchStepBody() {
   return { body: deathLine + buttons + selectionLine, confirmDisabled };
 }
 
-/** 日志页。内容详见 #15。SPEC §16 */
+/** 日志筛选芯片。SPEC §16.2 */
+const LOG_FILTERS = [
+  { key: 'all',   label: '全部' },
+  { key: 'death', label: '死亡' },
+  { key: 'skill', label: '技能' },
+  { key: 'note',  label: '备注' },
+];
+
+/** 日志条目类型显示名。SPEC §3.4 / §16.1 */
+const LOG_TYPE_LABEL = { skill: '技能', death: '死亡', system: '系统', note: '备注', warning: '警告' };
+
+/**
+ * 日志页：分组折叠浏览 + 筛选 + 法官备注。整页替换式屏幕，非覆盖层。SPEC §16
+ * 类型化事件的写入见 addLog / markDead / revive / buildStepLogEntry 等。
+ */
 function renderLog() {
   const host = document.getElementById('screen-log');
   if (!host) return;
+
+  const currentKey = `${state.day}-${state.phase}`;
+  const groups = buildLogGroups(logFilter);
+
+  const filterHtml = LOG_FILTERS.map(f => `
+    <button type="button" class="chip${logFilter === f.key ? ' is-active' : ''}" data-action="set-log-filter" data-filter="${f.key}">${f.label}</button>
+  `).join('');
+
+  const groupsHtml = groups.length
+    ? groups.map(g => renderLogGroup(g, currentKey)).join('')
+    : `<p class="note">暂无符合条件的日志</p>`;
+
   host.innerHTML = `
-    <div class="wrap">
-      <h1>日志</h1>
-      <p class="note">分组浏览、筛选与导出见票 #15。</p>
-      <div class="actions">
+    <div class="wrap log-screen">
+      <div class="setup-header">
+        <h1>日志</h1>
         <button type="button" class="btn btn-secondary" data-action="goto-game">‹ 返回</button>
+      </div>
+      <div class="log-filter-row" role="group" aria-label="日志筛选">${filterHtml}</div>
+      <div class="log-groups">${groupsHtml}</div>
+      <div class="log-note-row">
+        <input type="text" id="log-note-input" class="input" placeholder="添加法官备注…" maxlength="200" aria-label="法官备注">
+        <button type="button" class="btn btn-secondary" data-action="add-note">记录</button>
       </div>
     </div>
   `;
+}
+
+/**
+ * 按 `第N夜` / `第N天` 分组；组内保持写入顺序（时间正序），组间按最近写入倒序
+ * （当前阶段位于顶部）。空组（被筛选清空）不展示。SPEC §16.2
+ */
+function buildLogGroups(filter) {
+  const order = [];
+  const byKey = new Map();
+  state.log.forEach((entry, idx) => {
+    const key = `${entry.day}-${entry.phase}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, { key, day: entry.day, phase: entry.phase, entries: [] });
+      order.push(key);
+    }
+    byKey.get(key).entries.push({ entry, idx });
+  });
+  return order
+    .slice()
+    .reverse()
+    .map(key => {
+      const group = byKey.get(key);
+      const entries = filter === 'all' ? group.entries : group.entries.filter(({ entry }) => entry.type === filter);
+      return { ...group, entries };
+    })
+    .filter(g => g.entries.length > 0);
+}
+
+/** 单个分组：折叠标题 + 条目列表。当前阶段默认展开，历史阶段默认折叠，点击可切换。SPEC §16.2 */
+function renderLogGroup(group, currentKey) {
+  const label = `第${group.day}${group.phase === 'night' ? '夜' : '天'}`;
+  const isOpen = group.key in logGroupOpen ? logGroupOpen[group.key] : group.key === currentKey;
+  const entriesHtml = group.entries.map(({ entry, idx }) => renderLogEntryRow(entry, idx)).join('');
+  return `
+    <div class="log-group">
+      <button type="button" class="log-group-header" data-action="toggle-log-group" data-key="${escapeAttr(group.key)}" aria-expanded="${isOpen}">
+        <span>${label}</span>
+        <span class="log-group-count">${group.entries.length} 条 ${isOpen ? '▾' : '▸'}</span>
+      </button>
+      <div class="log-group-body"${isOpen ? '' : ' hidden'}>${entriesHtml}</div>
+    </div>
+  `;
+}
+
+/**
+ * 单条日志。备注可删除（先执行 + 撤销条）；系统 / 技能 / 死亡 / 警告条目为审计
+ * 轨迹，不可编辑或删除。SPEC §16.2
+ */
+function renderLogEntryRow(entry, idx) {
+  const deleteBtn = entry.type === 'note'
+    ? `<button type="button" class="btn btn-ghost btn-sm" data-action="delete-note" data-index="${idx}" aria-label="删除备注">删除</button>`
+    : '';
+  return `
+    <div class="log-entry log-entry-${entry.type}">
+      <span class="tag tag-outline">${LOG_TYPE_LABEL[entry.type]}</span>
+      <span class="log-entry-text">${escapeText(entry.text)}</span>
+      ${deleteBtn}
+    </div>
+  `;
+}
+
+/** 切换筛选芯片。纯 UI 状态，不入撤销栈。 */
+function setLogFilter(filter) {
+  logFilter = filter;
+  render();
+}
+
+/** 展开 / 折叠某个分组。纯 UI 状态，不入撤销栈。SPEC §16.2 */
+function toggleLogGroup(key) {
+  const currentKey = `${state.day}-${state.phase}`;
+  const current = key in logGroupOpen ? logGroupOpen[key] : key === currentKey;
+  logGroupOpen[key] = !current;
+  render();
 }
 
 /** 战报页。内容详见 #16。SPEC §4.4 */
@@ -2405,6 +2513,14 @@ function handleAppClick(e) {
     case 'skip-trigger':           skipTrigger(); break;
     case 'resolve-idiot-reveal':   resolveIdiotReveal(); break;
     case 'dismiss-alert':          dismissAlert(); break;
+    case 'set-log-filter':     setLogFilter(el.dataset.filter); break;
+    case 'toggle-log-group':   toggleLogGroup(el.dataset.key); break;
+    case 'add-note': {
+      const input = document.getElementById('log-note-input');
+      if (input) { addNote(input.value); input.value = ''; }
+      break;
+    }
+    case 'delete-note':        deleteNote(Number(el.dataset.index)); break;
     default: break;
   }
 }
@@ -2447,14 +2563,37 @@ function escapeText(s) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 日志（#15 范围，暂未实现）
+// 日志
 // ══════════════════════════════════════════════════════════════════
 
 /** 追加类型化事件。SPEC §3.4 / §16.1 */
-function addLog(type, text, extra = {}) { throw new Error('未实现'); }
-function addNote(text)                  { throw new Error('未实现'); }
-function deleteNote(index)              { throw new Error('未实现'); }
-function exportLogText()                { throw new Error('未实现'); }  // 复制到剪贴板
+function addLog(type, text, extra = {}) {
+  const entry = {
+    day: state.day, phase: state.phase, type,
+    actor: null, targets: [], text, result: null, ts: Date.now(),
+    ...extra,
+  };
+  update({ log: [...state.log, entry] });
+  return entry;
+}
+
+/** 法官备注：底部输入框添加。空白内容不记录。SPEC §16.2 */
+function addNote(text) {
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed) return;
+  addLog('note', trimmed);
+}
+
+/** 删除备注。仅备注可删；先执行 + 撤销条。SPEC §8.2 / §16.2 */
+function deleteNote(index) {
+  const entry = state.log[index];
+  if (!entry || entry.type !== 'note') return;
+  const log = state.log.filter((_, i) => i !== index);
+  update({ log });
+  showUndoBar('已删除备注');
+}
+
+function exportLogText()                { throw new Error('未实现'); }  // 复制到剪贴板 —— 战报页范围，见 #16
 
 // ══════════════════════════════════════════════════════════════════
 // 平台能力
