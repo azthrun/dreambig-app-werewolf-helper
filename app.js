@@ -3406,8 +3406,11 @@ function applyTheme(theme) {
   }
 }
 
-/** 注册 Service Worker。SPEC §13.2（#17 范围，暂未实现） */
-function registerServiceWorker() { throw new Error('未实现'); }
+/** 注册 Service Worker。SPEC §13.2 */
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('./sw.js');
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 启动
@@ -3442,6 +3445,7 @@ function boot() {
   });
   timerTickHandle = setInterval(tickTimer, 250);
   render();
+  registerServiceWorker();
 }
 
 boot();

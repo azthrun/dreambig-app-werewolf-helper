@@ -7,8 +7,6 @@
  *
  * ⚠️ 陈旧缓存是 Service Worker 的经典陷阱。
  *    CACHE_NAME 必须在每次发布时递增，否则用户会被钉在旧版本上。
- *
- * ⚠️ 尚未实现 —— 仅结构骨架。
  */
 
 const CACHE_NAME = 'wolf-v1';
@@ -24,16 +22,31 @@ const PRECACHE_URLS = [
   './storage.js',
   './icons.svg',
   './manifest.json',
+  './assets/icon-192.png',
+  './assets/icon-512.png',
+  './assets/icon-maskable-512.png',
 ];
 
 self.addEventListener('install', (event) => {
-  // TODO: caches.open(CACHE_NAME) → addAll(PRECACHE_URLS) → self.skipWaiting()
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(PRECACHE_URLS))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
-  // TODO: 删除所有非 CACHE_NAME 的缓存 → self.clients.claim()
+  event.waitUntil(
+    caches.keys()
+      .then((names) => Promise.all(
+        names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))
+      ))
+      .then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', (event) => {
-  // TODO: cache-first，未命中则网络回源
+  event.respondWith(
+    caches.match(event.request).then((cached) => cached || fetch(event.request))
+  );
 });
