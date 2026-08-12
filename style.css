@@ -181,6 +181,33 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 .game-header-title { margin: 0; font-size: 16px; }
 
+/* 计时器行：模式切换 / 剩余时间 / 播放暂停 / ±10s / 快捷档位或发言控制。SPEC §12.1 / §14 */
+.timer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3);
+}
+.timer-mode-tabs { display: flex; gap: var(--space-1); }
+.timer-remaining {
+  min-width: 3.5em;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.timer-controls { display: flex; align-items: center; gap: var(--space-1); }
+.timer-presets { display: flex; flex-wrap: wrap; gap: var(--space-1); flex: 1 1 100%; }
+.speech-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 100%;
+  font-size: 13px;
+}
+.speech-current { font-weight: 700; }
+
 .alert-banner { flex: 0 0 auto; }
 .alert-banner[hidden] { display: none; }
 
@@ -435,6 +462,13 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 
 /* 高亮脉冲 —— 警报通道，SPEC §10.2 */
 .player-card.is-pulse { animation: alertPulse 1.1s ease-in-out infinite; }
+
+/* 当前发言者 —— 发言计时模式下高亮，SPEC §14.2 */
+.player-card.is-current-speaker {
+  border-style: solid;
+  border-color: var(--color-accent);
+  background: var(--color-accent-100);
+}
 
 /* 展开态：身份 / 技能状态 / 修改身份 / 设为情侣 / 恢复存活 / 死因芯片
    —— 内联展开，非弹窗（SPEC §8.1 / §8.3） */
