@@ -7,8 +7,6 @@
  *   · wolf.names —— 姓名池与上次名单，跨局留存
  *
  * 所有数据仅存于本机，永不离开设备（SPEC §11.2）。
- *
- * ⚠️ 尚未实现 —— 仅为签名骨架。
  */
 
 export const GAME_KEY = 'wolf.game';
@@ -27,7 +25,11 @@ export const NAME_POOL_LIMIT = 50;
  * @param {GameState} state
  */
 export function saveGame(state) {
-  throw new Error('未实现');
+  try {
+    localStorage.setItem(GAME_KEY, JSON.stringify(state));
+  } catch (err) {
+    console.warn('[wolf] 存档写入失败', err);
+  }
 }
 
 /**
@@ -35,20 +37,51 @@ export function saveGame(state) {
  * @returns {?GameState}
  */
 export function loadGame() {
-  throw new Error('未实现');
+  let raw;
+  try {
+    raw = localStorage.getItem(GAME_KEY);
+  } catch (err) {
+    return null;
+  }
+  if (!raw) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    localStorage.removeItem(GAME_KEY);
+    return null;
+  }
+
+  if (!parsed || parsed.version !== STATE_VERSION) {
+    console.warn('[wolf] 存档版本不匹配，已丢弃');
+    localStorage.removeItem(GAME_KEY);
+    return null;
+  }
+
+  return parsed;
 }
 
 /** 清空对局存档槽。 */
 export function clearGame() {
-  throw new Error('未实现');
+  try {
+    localStorage.removeItem(GAME_KEY);
+  } catch (err) {
+    // 忽略：无法访问 localStorage 时静默失败
+  }
 }
 
 /**
  * 存档是否为「未完成对局」—— 决定 Step 1 是否显示恢复横幅。
+ * 仅当存档已进入实际对局（局内 / 日志 / 战报）才视为「未完成对局」；
+ * 仍处于设置向导阶段的存档直接续接编辑，不弹横幅（见 SPEC §4.1 演示场景）。
  * @returns {?{ day:number, phase:string, playerCount:number }}
  */
 export function pendingGameSummary() {
-  throw new Error('未实现');
+  const game = loadGame();
+  if (!game) return null;
+  if (!['game', 'log', 'report'].includes(game.screen)) return null;
+  return { day: game.day, phase: game.phase, playerCount: game.playerCount };
 }
 
 // ── 姓名池 ────────────────────────────────────────────────────────
@@ -58,7 +91,17 @@ export function pendingGameSummary() {
  * @returns {{ pool: string[], lastRoster: Array<{seat:number, name:string}> }}
  */
 export function loadNames() {
-  throw new Error('未实现');
+  try {
+    const raw = localStorage.getItem(NAMES_KEY);
+    if (!raw) return { pool: [], lastRoster: [] };
+    const parsed = JSON.parse(raw);
+    return {
+      pool: Array.isArray(parsed?.pool) ? parsed.pool : [],
+      lastRoster: Array.isArray(parsed?.lastRoster) ? parsed.lastRoster : [],
+    };
+  } catch (err) {
+    return { pool: [], lastRoster: [] };
+  }
 }
 
 /**
@@ -67,7 +110,14 @@ export function loadNames() {
  * @param {Array<{seat:number, name:string}>} roster
  */
 export function rememberNames(roster) {
-  throw new Error('未实现');
+  const { pool } = loadNames();
+  const usedNames = roster.map(r => r.name).filter(Boolean);
+  const merged = [...usedNames, ...pool.filter(n => !usedNames.includes(n))].slice(0, NAME_POOL_LIMIT);
+  try {
+    localStorage.setItem(NAMES_KEY, JSON.stringify({ pool: merged, lastRoster: roster }));
+  } catch (err) {
+    console.warn('[wolf] 姓名池写入失败', err);
+  }
 }
 
 /**
@@ -75,5 +125,9 @@ export function rememberNames(roster) {
  * 调用方须先经长按确认（SPEC §8.2）。
  */
 export function clearNames() {
-  throw new Error('未实现');
+  try {
+    localStorage.removeItem(NAMES_KEY);
+  } catch (err) {
+    // 忽略
+  }
 }
