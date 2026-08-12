@@ -12,8 +12,9 @@
  * 分配身份与开局 #9）、局内玩家网格与死亡标记（#10）、夜晚流程引导 / 技能
  * 追踪 / 信息展示（#11）、天亮结算 / 死亡触发队列 / 警报通道（#12）、
  * 白天流程与主动行为：放逐、骑士决斗、白狼王自爆带人、普通狼人自爆、
- * 情侣手动配对、进入下一夜（#13）与主题应用已实现。计时器、日志、战报、
- * 随机首发言等留给 #14–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
+ * 情侣手动配对、进入下一夜（#13）与主题应用、计时器（自由 / 发言两种模式）
+ * 与每日随机首发言（#14）已实现。日志、战报等留给 #15–#17，此处仅提供
+ * 可路由到达的最小占位屏，不实现其内容。
  */
 
 import {
@@ -115,6 +116,9 @@ let logGroupOpen = {};             // 分组 key（`${day}-${phase}`）-> 是否
 
 let undoBarTimer = null;           // 撤销条自动隐藏定时器
 let wakeLockSentinel = null;       // Screen Wake Lock 句柄
+
+/** 计时器显示刷新节拍。仅用于按 endsAt 推算剩余时间并重绘，绝不用于递减状态。SPEC §14.1 */
+let timerTickHandle = null;
 
 /** 建立初始状态。SPEC §3.3 */
 function createInitialState() {
@@ -610,7 +614,7 @@ function renderAlertBanner() {
   `;
 }
 
-/** 固定控制区：阶段标题 + 撤销 / 日志 / 长按结束。SPEC §12.1（计时器 / 阵营计数见 #11–#14） */
+/** 固定控制区：阶段标题 + 计时器 + 撤销 / 日志 / 长按结束。SPEC §12.1 / §14（阵营计数见 #17） */
 function renderGameHeader() {
   const header = document.getElementById('game-header');
   if (!header) return;
@@ -625,12 +629,66 @@ function renderGameHeader() {
         </button>
       </div>
     </div>
+    ${renderTimerRowHtml()}
   `;
   bindLongPressGuard(header.querySelector('[data-action="end-game"]'), () => {
     releaseWakeLock();
     hideUndoBar();
     update({ screen: 'report' }, { snapshot: false });
   });
+}
+
+/**
+ * 计时器控制行：模式切换（自由 / 发言）+ 剩余时间显示 + 播放暂停 + ±10s。
+ * 自由模式附快捷档位芯片；发言模式附当前发言者与上一位 / 下一位。SPEC §14
+ */
+function renderTimerRowHtml() {
+  const t = state.timer;
+  const running = t.running;
+  const paused = !running && t.pausedRemaining != null;
+  const toggleLabel = running ? '暂停' : '开始';
+  const toggleGlyph = running ? '⏸' : '▶';
+  const toggleDisabled = !running && !paused && t.mode === 'speech' && t.speechSeat == null;
+
+  const modeTabsHtml = `
+    <div class="timer-mode-tabs" role="group" aria-label="计时模式">
+      <button type="button" class="btn btn-ghost btn-sm${t.mode === 'free' ? ' is-active' : ''}" data-action="set-timer-mode" data-mode="free">自由</button>
+      <button type="button" class="btn btn-ghost btn-sm${t.mode === 'speech' ? ' is-active' : ''}" data-action="set-timer-mode" data-mode="speech">发言</button>
+    </div>
+  `;
+
+  const subRowHtml = t.mode === 'free' ? `
+    <div class="timer-presets">
+      ${[30, 60, 90, 120, 180].map(s => `<button type="button" class="chip" data-action="timer-preset" data-seconds="${s}">${s}s</button>`).join('')}
+    </div>
+  ` : `
+    <div class="speech-controls">
+      <span class="speech-current">${t.speechSeat != null ? `${t.speechSeat}号发言中 · ${t.speechDirection === 1 ? '顺时针' : '逆时针'}` : '尚未选定发言起点'}</span>
+      <button type="button" class="btn btn-secondary btn-sm" data-action="speech-prev" ${t.speechSeat == null ? 'disabled' : ''}>‹ 上一位</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-action="speech-next" ${t.speechSeat == null ? 'disabled' : ''}>下一位 ›</button>
+    </div>
+  `;
+
+  return `
+    <div class="timer-row">
+      ${modeTabsHtml}
+      <span id="timer-remaining" class="timer-remaining">${formatTimerMs(timerRemainingMs())}</span>
+      <div class="timer-controls">
+        <button type="button" class="btn btn-icon" data-action="timer-toggle" aria-label="${toggleLabel}计时"${toggleDisabled ? ' disabled' : ''}>${toggleGlyph}</button>
+        <button type="button" class="btn btn-icon" data-action="timer-adjust" data-delta="-10" aria-label="减少10秒">−10s</button>
+        <button type="button" class="btn btn-icon" data-action="timer-adjust" data-delta="10" aria-label="增加10秒">+10s</button>
+      </div>
+      ${subRowHtml}
+    </div>
+  `;
+}
+
+/** mm:ss 格式化，向上取整避免刚启动时因毫秒误差显示少 1 秒。 */
+function formatTimerMs(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 /** 固定步骤区。夜晚流程见本节；白天流程见 #12–#13。SPEC §12.1 */
@@ -761,6 +819,7 @@ function renderDayMainPanel() {
 
   return `
     <div class="phase-step">
+      ${renderFirstSpeakerBannerHtml()}
       <div class="phase-step-header">
         <h2 class="phase-step-title">白天</h2>
         <p class="phase-step-instruction">死亡与触发已处理。长按玩家卡片可标记放逐；随时可发起白天主动行为</p>
@@ -768,6 +827,26 @@ function renderDayMainPanel() {
       <div class="day-action-list">${actionButtons}</div>
       <div class="phase-step-actions">
         <button type="button" class="btn btn-primary btn-block" data-action="end-day">进入下一夜</button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * 每日随机首发言抽取结果的内联横幅：已抽取但尚未点击「开始发言」时显示。
+ * 一旦发言计时启动（running 或 paused）即视为已采用，横幅让位于发言控制区。SPEC §15
+ */
+function renderFirstSpeakerBannerHtml() {
+  const t = state.timer;
+  if (t.mode !== 'speech' || t.speechSeat == null) return '';
+  if (t.running || t.pausedRemaining != null) return '';
+  const dirLabel = t.speechDirection === 1 ? '顺时针' : '逆时针';
+  return `
+    <div class="banner-inline" role="status">
+      <span>本轮发言：${t.speechSeat}号 开始 · ${dirLabel}</span>
+      <div class="banner-actions">
+        <button type="button" class="btn btn-secondary btn-sm" data-action="redraw-first-speaker">重新抽取</button>
+        <button type="button" class="btn btn-primary btn-sm" data-action="start-speech-timer">开始发言</button>
       </div>
     </div>
   `;
@@ -1082,7 +1161,8 @@ function renderPlayerGrid() {
   grid.dataset.columns = String(columns);
   const { selectable, selected } = activeSelectableSeats();
   const pulsing = alertPulseSeats();
-  grid.innerHTML = state.players.map(p => renderPlayerCard(p, columns, selectable, selected, pulsing)).join('');
+  const speakingSeat = state.timer.mode === 'speech' ? state.timer.speechSeat : null;
+  grid.innerHTML = state.players.map(p => renderPlayerCard(p, columns, selectable, selected, pulsing, speakingSeat)).join('');
 
   // 长按 550ms 标记阵亡，仅绑定于折叠态的存活卡片；配对 / 白天主动行为选择进行中时不绑定，
   // 避免与点选目标手势冲突。SPEC §8.3
@@ -1144,11 +1224,12 @@ function activeSelectableSeats() {
 }
 
 /** 单张玩家卡片：折叠 / 展开态，按存活与人数密度分派。SPEC §12.2 / §8.3 / §10.2 */
-function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats = new Set(), pulseSeats = new Set()) {
+function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats = new Set(), pulseSeats = new Set(), speakingSeat = null) {
   const role = p.roleId ? ROLE_MAP[p.roleId] : null;
   const roleName = role ? role.name : '未知身份';
   const displayName = escapeText(p.name || `${p.seat}号`);
   const pulseClass = pulseSeats.has(p.seat) ? ' is-pulse' : '';
+  const speakingClass = p.alive && speakingSeat === p.seat ? ' is-current-speaker' : '';
 
   if (gameRoleEditSeat === p.seat) {
     return `
@@ -1231,7 +1312,7 @@ function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats
 
   const isSelectable = selectableSeats.has(p.seat);
   const isSelected = selectedSeats.has(p.seat);
-  const targetClass = `${isSelectable ? ' is-selectable' : ''}${isSelected ? ' is-selected' : ''}${pulseClass}`;
+  const targetClass = `${isSelectable ? ' is-selectable' : ''}${isSelected ? ' is-selected' : ''}${pulseClass}${speakingClass}`;
   return `
     <button type="button" class="player-card${targetClass}" data-action="toggle-alive-expand" data-seat="${p.seat}">
       ${renderCardBodyByDensity(p, role, columns)}
@@ -2099,8 +2180,8 @@ function endNight() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 流程 —— 白天：死亡结算确认 + 触发队列                SPEC §4.3 / §5.4
-// 随机首发言 / 发言计时 / 骑士决斗 / 自爆 / 放逐 / 进入下一夜 —— #13 范围
+// 流程 —— 白天：死亡结算确认 + 触发队列 + 每日随机首发言（withAutoFirstSpeaker）
+// SPEC §4.3 / §5.4 / §15；骑士决斗 / 自爆 / 放逐 / 进入下一夜见后续小节
 // ══════════════════════════════════════════════════════════════════
 
 /** 死因是否符合「白痴翻牌免死」条件：仅死因为被投票且未翻过牌。SPEC §5.4 */
@@ -2156,14 +2237,14 @@ function confirmPendingDeaths() {
   const { alertQueue, logAppend } = appendAlerts(suppressedAlerts);
   const daySubPhase = triggerQueue.length ? 'triggers' : 'main';
 
-  update({
+  update(withAutoFirstSpeaker({
     players,
     pendingDeaths: [],
     triggerQueue,
     daySubPhase,
     alertQueue,
     log: [...state.log, ...deathEntries, ...logAppend],
-  });
+  }));
   if (suppressedAlerts.length) notifyAlert();
 }
 
@@ -2214,7 +2295,7 @@ function applyDeathsFromTrigger(players, deathsList, extraLogEntries, remainingQ
   } else if (advanceOnEmpty) {
     startNextNight(updatedPlayers, log);
   } else {
-    update({ players: updatedPlayers, triggerQueue, daySubPhase: 'main', alertQueue, log });
+    update(withAutoFirstSpeaker({ players: updatedPlayers, triggerQueue, daySubPhase: 'main', alertQueue, log }));
   }
   if (suppressedAlerts.length) notifyAlert();
 }
@@ -2257,7 +2338,7 @@ function resolveIdiotReveal() {
   } else if (state.pendingNightAdvance) {
     startNextNight(players, log);
   } else {
-    update({ players, triggerQueue: rest, daySubPhase: 'main', log });
+    update(withAutoFirstSpeaker({ players, triggerQueue: rest, daySubPhase: 'main', log }));
   }
 }
 
@@ -2284,7 +2365,7 @@ function skipTrigger() {
   } else if (state.pendingNightAdvance) {
     startNextNight(players, log);
   } else {
-    update({ players, triggerQueue: rest, daySubPhase: 'main', log });
+    update(withAutoFirstSpeaker({ players, triggerQueue: rest, daySubPhase: 'main', log }));
   }
 }
 
@@ -2486,16 +2567,178 @@ function revive(seat) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 计时器（#14 范围，暂未实现）—— 以截止时间戳存储，不使用递减整数。SPEC §14.1
+// 计时器 —— 以截止时间戳存储，每次渲染 / 节拍推算剩余，绝不递减整数状态。SPEC §14.1
 // ══════════════════════════════════════════════════════════════════
 
-function timerStart(seconds)        { throw new Error('未实现'); }
-function timerPause()               { throw new Error('未实现'); }
-function timerAdjust(deltaSeconds)  { throw new Error('未实现'); }
-function timerRemainingMs()         { throw new Error('未实现'); }
-function startSpeechTimer(seat, dir){ throw new Error('未实现'); }  // SPEC §14.2
-function speechNext()               { throw new Error('未实现'); }
-function speechPrev()               { throw new Error('未实现'); }
+/**
+ * 切换自由 / 发言模式；切换时停止当前计时，避免跨模式的截止时间戳残留。
+ * 未曾抽取过首发言时切入发言模式，退化为「法官手动指定起始」——默认取存活
+ * 座位号最小者、顺时针，随后可用上一位 / 下一位调整到期望的起始座位。SPEC §14.2
+ */
+function setTimerMode(mode) {
+  if (mode === state.timer.mode) return;
+  const needsFallbackSeat = mode === 'speech' && state.timer.speechSeat == null;
+  const fallbackSeat = needsFallbackSeat
+    ? state.players.filter(p => p.alive).map(p => p.seat).sort((a, b) => a - b)[0] ?? null
+    : state.timer.speechSeat;
+  update({
+    timer: {
+      ...state.timer, mode, running: false, endsAt: null, pausedRemaining: null,
+      speechSeat: mode === 'speech' ? fallbackSeat : state.timer.speechSeat,
+      speechDirection: needsFallbackSeat ? 1 : state.timer.speechDirection,
+    },
+  });
+}
+
+/** 自由计时快捷档位：立即以给定秒数开始一段新的倒计时。SPEC §14.2 */
+function timerStart(seconds) {
+  update({
+    timer: {
+      ...state.timer, mode: 'free', speechSeat: null,
+      endsAt: Date.now() + seconds * 1000, pausedRemaining: null, running: true,
+    },
+  });
+}
+
+/**
+ * 播放 / 暂停切换按钮：运行中则暂停（保存剩余毫秒），暂停中则恢复（重算截止时间戳），
+ * 空闲时按当前模式以默认时长起步（发言模式复用 startSpeechTimer）。SPEC §14.1
+ */
+function timerToggle() {
+  const t = state.timer;
+  if (t.running) {
+    update({ timer: { ...t, running: false, endsAt: null, pausedRemaining: timerRemainingMs() } });
+    return;
+  }
+  if (t.pausedRemaining != null) {
+    update({ timer: { ...t, running: true, endsAt: Date.now() + t.pausedRemaining, pausedRemaining: null } });
+    return;
+  }
+  if (t.mode === 'speech') {
+    if (t.speechSeat == null) return;
+    startSpeechTimer(t.speechSeat, t.speechDirection);
+  } else {
+    timerStart(state.settings.dayTimerDefault);
+  }
+}
+
+/** ±10s 微调：作用于当前运行中或暂停中的倒计时；空闲时无计时可调，忽略。SPEC §14.2 */
+function timerAdjust(deltaSeconds) {
+  const t = state.timer;
+  const deltaMs = deltaSeconds * 1000;
+  if (t.running && t.endsAt != null) {
+    update({ timer: { ...t, endsAt: Math.max(Date.now(), t.endsAt + deltaMs) } });
+  } else if (t.pausedRemaining != null) {
+    update({ timer: { ...t, pausedRemaining: Math.max(0, t.pausedRemaining + deltaMs) } });
+  }
+}
+
+/** 由截止时间戳 / 暂停剩余量推算当前剩余毫秒，供渲染与到时判定共用。SPEC §14.1 */
+function timerRemainingMs() {
+  const t = state.timer;
+  if (t.running && t.endsAt != null) return Math.max(0, t.endsAt - Date.now());
+  if (t.pausedRemaining != null) return t.pausedRemaining;
+  return 0;
+}
+
+/** 以指定座位与方向开始发言计时，时长取自白天讨论默认时长。SPEC §14.2 / §15 */
+function startSpeechTimer(seat, direction) {
+  update({
+    timer: {
+      mode: 'speech', speechSeat: seat, speechDirection: direction,
+      endsAt: Date.now() + state.settings.dayTimerDefault * 1000,
+      pausedRemaining: null, running: true,
+    },
+  });
+}
+
+function speechNext() { advanceSpeech(1); }
+function speechPrev() { advanceSpeech(-1); }
+
+/**
+ * 「下一位」按发言方向跳至下一存活座位（跳过阵亡）；「上一位」按相反方向回退。
+ * 计时器已启动（运行中或暂停中）时为新发言者重新起满一段计时；尚未开始（预抽取
+ * 待确认阶段）时仅调整候选座位，不触发计时。SPEC §14.2
+ */
+function advanceSpeech(step) {
+  const t = state.timer;
+  if (t.mode !== 'speech' || t.speechSeat == null) return;
+  const dir = step === 1 ? t.speechDirection : -t.speechDirection;
+  const nextSeat = nextAliveSeat(state, t.speechSeat, dir);
+  if (nextSeat == null) return;
+
+  const active = t.running || t.pausedRemaining != null;
+  update({
+    timer: {
+      ...t,
+      speechSeat: nextSeat,
+      endsAt: active && t.running ? Date.now() + state.settings.dayTimerDefault * 1000 : null,
+      pausedRemaining: active && !t.running ? state.settings.dayTimerDefault * 1000 : null,
+    },
+  });
+}
+
+/** 天亮结算确认后（首次进入白天主阶段）按设置自动抽取每日随机首发言，写入日志。SPEC §15 */
+function withAutoFirstSpeaker(patch) {
+  if (patch.daySubPhase !== 'main' || state.daySubPhase === 'main' || !state.settings.randomFirstSpeaker) {
+    return patch;
+  }
+  const pick = pickFirstSpeaker({ ...state, players: patch.players ?? state.players });
+  if (!pick) return patch;
+  return { ...patch, ...firstSpeakerPatch(pick, patch.log ?? state.log) };
+}
+
+/** 「重新抽取」：法官手动重新抽取本轮首发言。SPEC §15 */
+function redrawFirstSpeaker() {
+  const pick = pickFirstSpeaker(state);
+  if (!pick) return;
+  update(firstSpeakerPatch(pick, state.log));
+}
+
+/** 构造首发言抽取结果对应的 timer / log 状态补丁，供自动与手动重抽共用。SPEC §15 */
+function firstSpeakerPatch(pick, log) {
+  const dirLabel = pick.direction === 1 ? '顺时针' : '逆时针';
+  const entry = {
+    day: state.day, phase: 'day', type: 'system', actor: null, targets: [pick.seat],
+    text: `本轮发言：${pick.seat}号 开始 · ${dirLabel}`, result: null, ts: Date.now(),
+  };
+  return {
+    timer: {
+      ...state.timer, mode: 'speech',
+      speechSeat: pick.seat, speechDirection: pick.direction,
+      running: false, endsAt: null, pausedRemaining: null,
+    },
+    log: [...log, entry],
+  };
+}
+
+/** 计时归零：接入警报通道（强视觉闪烁 + 可用时震动 + 可选提示音），非阻断。SPEC §10.3 / §14.3 */
+function handleTimerExpired() {
+  const seat = state.timer.mode === 'speech' ? state.timer.speechSeat : undefined;
+  const { alertQueue, logAppend } = appendAlerts([{ type: 'timerExpired', seat, text: '计时时间到' }]);
+  update({
+    timer: { ...state.timer, running: false, endsAt: null, pausedRemaining: 0 },
+    alertQueue,
+    log: [...state.log, ...logAppend],
+  });
+  notifyAlert();
+}
+
+/**
+ * 计时显示节拍：每 250ms 检查一次，仅在局内界面且计时运行中才动作。
+ * 到时触发警报（走 update() 全量重渲染）；未到时仅直接更新剩余时间文本节点，
+ * 不调用 update()，避免每个节拍都写入 localStorage 与重绘整屏。SPEC §14.1
+ */
+function tickTimer() {
+  if (state.screen !== 'game' || !state.timer.running) return;
+  const remaining = timerRemainingMs();
+  if (remaining <= 0) {
+    handleTimerExpired();
+    return;
+  }
+  const el = document.getElementById('timer-remaining');
+  if (el) el.textContent = formatTimerMs(remaining);
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 警报通道 —— 视觉优先，震动 / 提示音为渐进增强，绝不依赖。SPEC §10
@@ -2836,6 +3079,14 @@ function handleAppClick(e) {
     case 'start-wolf-selfdestruct': startWolfSelfDestructPick(); break;
     case 'cancel-day-action':       cancelDayAction(); break;
     case 'end-day':                 endDay(); break;
+    case 'set-timer-mode':          setTimerMode(el.dataset.mode); break;
+    case 'timer-toggle':            timerToggle(); break;
+    case 'timer-adjust':            timerAdjust(Number(el.dataset.delta)); break;
+    case 'timer-preset':            timerStart(Number(el.dataset.seconds)); break;
+    case 'speech-next':             speechNext(); break;
+    case 'speech-prev':             speechPrev(); break;
+    case 'start-speech-timer':      startSpeechTimer(state.timer.speechSeat, state.timer.speechDirection); break;
+    case 'redraw-first-speaker':    redrawFirstSpeaker(); break;
     case 'dismiss-alert':          dismissAlert(); break;
     case 'set-log-filter':     setLogFilter(el.dataset.filter); break;
     case 'toggle-log-group':   toggleLogGroup(el.dataset.key); break;
@@ -2984,6 +3235,7 @@ function boot() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && state.screen === 'game') requestWakeLock();
   });
+  timerTickHandle = setInterval(tickTimer, 250);
   render();
 }
 
