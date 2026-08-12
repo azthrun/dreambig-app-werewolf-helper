@@ -271,15 +271,39 @@ test('pickFirstSpeaker: 全员阵亡 → null', () => {
 // ── SPEC §18 必测场景 ─────────────────────────────────────────────
 
 test('1. 狼刀 + 守卫守护同一人 → 无人死亡', () => {
-  throw new Error('PENDING');
+  const state = makeState({
+    playerCount: 9,
+    roles: { 1: 'seer', 2: 'witch', 3: 'villager', 4: 'guard' },
+    nightActions: { wolfTarget: 3, guardTarget: 3 },
+  });
+  const { deaths } = resolveDawn(state);
+  assertDeaths(deaths, []);
 });
 
 test('2. 狼刀 + 女巫解药同一人 → 无人死亡', () => {
-  throw new Error('PENDING');
+  const state = makeState({
+    playerCount: 9,
+    roles: { 1: 'seer', 2: 'witch', 3: 'villager' },
+    nightActions: { wolfTarget: 3, witchAction: { type: 'save', target: 3 } },
+  });
+  const { deaths } = resolveDawn(state);
+  assertDeaths(deaths, []);
 });
 
 test('3. 同守同救 → 依开关判定（默认死亡）且触发警告', () => {
-  throw new Error('PENDING');
+  const state = makeState({
+    playerCount: 9,
+    roles: { 1: 'seer', 2: 'witch', 3: 'villager', 4: 'guard' },
+    nightActions: {
+      wolfTarget: 3,
+      guardTarget: 3,
+      witchAction: { type: 'save', target: 3 },
+    },
+  });
+  const { deaths, warnings } = resolveDawn(state);
+  assertDeaths(deaths, [{ seat: 3, reason: '被狼杀' }]);
+  assert(warnings.length === 1, `期望 1 条警告，实际 ${warnings.length}`);
+  assert(warnings[0].seat === 3, `警告座位期望 3，实际 ${warnings[0].seat}`);
 });
 
 test('4. 女巫毒杀猎人 → 猎人不入开枪队列（默认开关）', () => {
@@ -287,7 +311,17 @@ test('4. 女巫毒杀猎人 → 猎人不入开枪队列（默认开关）', () 
 });
 
 test('5. 情侣连锁：狼刀情侣 A → B 殉情', () => {
-  throw new Error('PENDING');
+  const state = makeState({
+    playerCount: 9,
+    roles: { 1: 'seer', 2: 'witch', 3: 'villager', 5: 'villager' },
+    lovers: [[3, 5]],
+    nightActions: { wolfTarget: 3 },
+  });
+  const { deaths } = resolveDawn(state);
+  assertDeaths(deaths, [
+    { seat: 3, reason: '被狼杀' },
+    { seat: 5, reason: '殉情' },
+  ]);
 });
 
 test('6. 情侣+猎人连锁：猎人被投→开枪击中情侣A→B殉情→B为狼王→狼王入队', () => {
@@ -299,7 +333,13 @@ test('7. 狼美人死亡 → 被魅惑者殉情', () => {
 });
 
 test('8. 魔术师交换 → 狼刀指向被重定向', () => {
-  throw new Error('PENDING');
+  const state = makeState({
+    playerCount: 9,
+    roles: { 1: 'magician', 2: 'villager', 3: 'villager', 5: 'villager' },
+    nightActions: { wolfTarget: 3, magicianSwap: [3, 5] },
+  });
+  const { deaths } = resolveDawn(state);
+  assertDeaths(deaths, [{ seat: 5, reason: '被狼杀' }]);
 });
 
 test('9. 守卫连守违规 → 触发警告但不阻断', () => {
@@ -312,7 +352,21 @@ test('10c. 熊咆哮：跨越死者取最近存活邻座', () => { throw new Err
 test('10d. 熊咆哮：邻座身份未知 → unknown', () => { throw new Error('PENDING'); });
 
 test('11. 连锁收敛：循环情侣链不产生死循环', () => {
-  throw new Error('PENDING');
+  const state = makeState({
+    playerCount: 5,
+    players: {
+      1: { loverSeat: 2 },
+      2: { loverSeat: 3 },
+      3: { loverSeat: 1 },
+    },
+    nightActions: { wolfTarget: 1 },
+  });
+  const { deaths } = resolveDawn(state);
+  assertDeaths(deaths, [
+    { seat: 1, reason: '被狼杀' },
+    { seat: 2, reason: '殉情' },
+    { seat: 3, reason: '殉情' },
+  ]);
 });
 
 // ── 汇总 ──────────────────────────────────────────────────────────
