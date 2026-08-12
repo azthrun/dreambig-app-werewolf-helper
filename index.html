@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a1918">
+<title>狼人杀法官助手</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SPEC §12.5 — 图标 sprite，构建期由 icons.svg 内联至此
+     ══════════════════════════════════════════════════════════════════ -->
+<div id="icon-sprite" hidden><!-- TODO: 内联 icons.svg --></div>
+
+<div id="app" class="app-shell">
+
+  <!-- ════════════════════════════════════════════════════════════════
+       设置 Step 1 — 人数与角色牌配置          SPEC §4.1
+       ════════════════════════════════════════════════════════════════ -->
+  <section id="screen-setup1" class="screen" hidden>
+    <!-- TODO: 未完成存档恢复横幅（内联，非弹窗）      SPEC §11.1 -->
+    <!-- TODO: 标题区 -->
+    <!-- TODO: 人数加减（6–20）+ 预设按钮（9人/12人/清空） -->
+    <!-- TODO: 角色配置列表，按阵营分组：狼人 / 神职 / 平民 -->
+    <!-- TODO: 已选 X / 需 N 人 计数标签（不禁用下一步） -->
+    <!-- TODO: 下一步按钮 -->
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════
+       设置 Step 2 — 玩家名单                  SPEC §4.1
+       ════════════════════════════════════════════════════════════════ -->
+  <section id="screen-setup2" class="screen" hidden>
+    <!-- TODO: 沿用上次名单 按钮                    SPEC §11.2 -->
+    <!-- TODO: 座位行 = 座位号 + 拖拽把手 ⠿ + 姓名输入 -->
+    <!-- TODO: 姓名池芯片（输入聚焦时展开）          SPEC §11.2 -->
+    <!-- TODO: 清空已存姓名（长按 600ms）           SPEC §8.2 -->
+    <!-- TODO: 上一步 / 下一步 -->
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════
+       设置 Step 3 — 夜晚顺序、计时、高级规则   SPEC §4.1 / §7
+       ════════════════════════════════════════════════════════════════ -->
+  <section id="screen-setup3" class="screen" hidden>
+    <!-- TODO: 夜晚步骤拖拽排序（复用 Step 2 拖拽组件）+ 恢复默认 -->
+    <!-- TODO: 计时默认值：白天讨论 / 夜晚行动 -->
+    <!-- TODO: <details> 高级规则（默认折叠）        SPEC §7
+               · 同守同救结果
+               · 女巫自救
+               · 守卫连守
+               · 非常规死亡抑制开枪
+               · 女巫同夜双药
+               · 每日随机首发言
+               · 提示音 -->
+    <!-- TODO: 上一步 / 下一步 -->
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════
+       设置 Step 4 — 分配身份                  SPEC §4.1 / §8.4
+       ════════════════════════════════════════════════════════════════ -->
+  <section id="screen-setup4" class="screen" hidden>
+    <!-- TODO: 随机分配剩余身份（crypto.getRandomValues） -->
+    <!-- TODO: 紧凑网格：点座位 → 点角色（非下拉列表） -->
+    <!-- TODO: 已分配 X / N 状态标签 -->
+    <!-- TODO: 上一步 / 开始游戏（始终可点击 —— 身份非必填） -->
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════
+       局内主界面                              SPEC §12.1
+       固定：控制区 + 警告区 + 步骤区 ／ 仅玩家网格可滚动
+       ════════════════════════════════════════════════════════════════ -->
+  <section id="screen-game" class="screen" hidden>
+
+    <header id="game-header" class="game-header">
+      <!-- TODO: 第 N 晚/天 + 阵营计数条 狼x·神y·民z    SPEC §17 -->
+      <!-- TODO: 计时器 ±10s / 开始暂停 / 撤销 / 日志 / 长按结束 -->
+    </header>
+
+    <div id="alert-banner" class="alert-banner" hidden>
+      <!-- TODO: 常驻警告横幅，需点击「知道了」确认      SPEC §10.2 -->
+    </div>
+
+    <div id="phase-panel" class="phase-panel">
+      <!-- TODO: 夜晚 —— 当前步骤名 / 口播提示 / 信息答案 / 完成·跳过
+                                                        SPEC §4.2 / §9 -->
+      <!-- TODO: 白天 —— 死亡公布确认 / 触发队列 / 随机首发言 /
+                 发言计时 / 骑士决斗 / 白狼王自爆 / 狼人自爆 / 进入下一夜
+                                                        SPEC §4.3 / §5.4 -->
+    </div>
+
+    <div id="player-grid" class="player-grid" data-columns="3">
+      <!-- TODO: 玩家卡片；列数随人数自适应 3/4/5        SPEC §12.2 -->
+      <!-- TODO: 阵亡卡片折叠至 ~42px -->
+    </div>
+
+    <div id="undo-bar" class="undo-bar" hidden>
+      <!-- TODO: 先执行 + 撤销条（~5s）                 SPEC §8.2 -->
+    </div>
+
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════
+       日志页（整页替换，非覆盖层）            SPEC §16
+       ════════════════════════════════════════════════════════════════ -->
+  <section id="screen-log" class="screen" hidden>
+    <!-- TODO: 标题 + 返回 -->
+    <!-- TODO: 筛选芯片 全部/死亡/技能/备注 -->
+    <!-- TODO: 按 第N夜/第N天 分组折叠，组内正序、组间倒序 -->
+    <!-- TODO: 法官备注输入 + 记录 -->
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════
+       战报页                                  SPEC §4.4
+       ════════════════════════════════════════════════════════════════ -->
+  <section id="screen-report" class="screen" hidden>
+    <!-- TODO: 胜方点选 好人胜 / 狼人胜 / 平局 -->
+    <!-- TODO: 完整名单：座位·姓名·身份·死因·死亡时间 -->
+    <!-- TODO: 总时长 / 天数 -->
+    <!-- TODO: 复制日志文本 / 开新局 / 返回 -->
+  </section>
+
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

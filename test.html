@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>engine.js 测试</title>
+<style>
+  body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 16px; line-height: 1.7; }
+  .pass { color: #1a7f37; }
+  .fail { color: #cf222e; font-weight: 700; }
+  .pending { color: #9a6700; }
+  h1 { font-size: 18px; }
+  li { margin-bottom: 2px; }
+</style>
+</head>
+<body>
+
+<h1>engine.js 断言测试 — SPEC §18</h1>
+<p>结算是 bug 会静默污染实时对局的地方，因此纯函数化并逐场景断言。</p>
+<ul id="results"></ul>
+
+<script type="module">
+import {
+  resolveDawn, buildTriggerQueue, cascadeDeaths, computeStepInfo,
+  bearGrowls, validateAction, activeNightSteps, campCounts,
+  pickFirstSpeaker, nextAliveSeat,
+} from './engine.js';
+
+// ── 极简测试框架 ──────────────────────────────────────────────────
+const results = document.getElementById('results');
+let passed = 0, failed = 0, pending = 0;
+
+function test(name, fn) {
+  const li = document.createElement('li');
+  try {
+    fn();
+    li.className = 'pass';
+    li.textContent = `✓ ${name}`;
+    passed++;
+  } catch (e) {
+    if (e.message === '未实现' || e.message === 'PENDING') {
+      li.className = 'pending';
+      li.textContent = `… ${name} — 待实现`;
+      pending++;
+    } else {
+      li.className = 'fail';
+      li.textContent = `✗ ${name} — ${e.message}`;
+      failed++;
+    }
+  }
+  results.appendChild(li);
+}
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || '断言失败');
+}
+
+function assertDeaths(actual, expected) {
+  const norm = a => a.map(d => `${d.seat}:${d.reason}`).sort().join(', ');
+  assert(norm(actual) === norm(expected),
+    `期望 [${norm(expected)}]，实际 [${norm(actual)}]`);
+}
+
+// ── 夹具 ──────────────────────────────────────────────────────────
+// TODO: makeState({ players, roleCounts, rules, nightActions, ... })
+function makeState(overrides = {}) {
+  throw new Error('PENDING');
+}
+
+// ── SPEC §18 必测场景 ─────────────────────────────────────────────
+
+test('1. 狼刀 + 守卫守护同一人 → 无人死亡', () => {
+  throw new Error('PENDING');
+});
+
+test('2. 狼刀 + 女巫解药同一人 → 无人死亡', () => {
+  throw new Error('PENDING');
+});
+
+test('3. 同守同救 → 依开关判定（默认死亡）且触发警告', () => {
+  throw new Error('PENDING');
+});
+
+test('4. 女巫毒杀猎人 → 猎人不入开枪队列（默认开关）', () => {
+  throw new Error('PENDING');
+});
+
+test('5. 情侣连锁：狼刀情侣 A → B 殉情', () => {
+  throw new Error('PENDING');
+});
+
+test('6. 情侣+猎人连锁：猎人被投→开枪击中情侣A→B殉情→B为狼王→狼王入队', () => {
+  throw new Error('PENDING');
+});
+
+test('7. 狼美人死亡 → 被魅惑者殉情', () => {
+  throw new Error('PENDING');
+});
+
+test('8. 魔术师交换 → 狼刀指向被重定向', () => {
+  throw new Error('PENDING');
+});
+
+test('9. 守卫连守违规 → 触发警告但不阻断', () => {
+  throw new Error('PENDING');
+});
+
+test('10a. 熊咆哮：邻座为狼 → true', () => { throw new Error('PENDING'); });
+test('10b. 熊咆哮：邻座非狼 → false', () => { throw new Error('PENDING'); });
+test('10c. 熊咆哮：跨越死者取最近存活邻座', () => { throw new Error('PENDING'); });
+test('10d. 熊咆哮：邻座身份未知 → unknown', () => { throw new Error('PENDING'); });
+
+test('11. 连锁收敛：循环情侣链不产生死循环', () => {
+  throw new Error('PENDING');
+});
+
+// ── 汇总 ──────────────────────────────────────────────────────────
+const summary = document.createElement('p');
+summary.innerHTML = `<strong>通过 ${passed} · 失败 ${failed} · 待实现 ${pending}</strong>`;
+document.body.appendChild(summary);
+</script>
+
+</body>
+</html>

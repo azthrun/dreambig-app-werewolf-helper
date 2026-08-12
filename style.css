@@ -1,0 +1,160 @@
+/**
+ * style.css — 设计令牌 + 组件层 + 布局
+ * SPEC §12.4
+ *
+ * 沿用 Modernist 设计系统的令牌架构与扁平风格（0 圆角、2px 分隔线、
+ * 标签左对齐、单一强调红），但作两处必要修正：
+ *   1. 移除 Google Fonts —— Archivo 无 CJK 覆盖，界面几乎全为中文
+ *   2. 新增暗色主题 —— 狼人杀在昏暗环境进行，局内默认暗色
+ *
+ * ⚠️ 组件层与布局尚未实现 —— 仅令牌与骨架就位。
+ */
+
+/* ══════════════════════════════════════════════════════════════════
+   令牌 —— 浅色（完整定义于裸 :root）
+   ══════════════════════════════════════════════════════════════════ */
+:root {
+  --color-bg: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-text: #201e1d;
+  --color-accent: #ec3013;
+  --color-divider: color-mix(in srgb, #201e1d 40%, transparent);
+
+  --color-neutral-100: #f8f4f4;
+  --color-neutral-200: #eae7e7;
+  --color-neutral-300: #d7d3d3;
+  --color-neutral-400: #bab6b6;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #7d7979;
+  --color-neutral-700: #605d5d;
+  --color-neutral-800: #444141;
+  --color-neutral-900: #2d2b2b;
+
+  --color-accent-100: #fff2ef;
+  --color-accent-200: #ffe0d9;
+  --color-accent-300: #ffc4b8;
+  --color-accent-400: #ff9783;
+  --color-accent-500: #ff563c;
+  --color-accent-600: #dd2b0f;
+  --color-accent-700: #ae1800;
+  --color-accent-800: #7c1405;
+  --color-accent-900: #4d170e;
+
+  /* 系统字体栈，含 CJK 回退（SPEC §12.4） */
+  --font-body: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB",
+               "Microsoft YaHei", sans-serif;
+  --font-heading: var(--font-body);
+  --font-heading-weight: 700;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+
+  /* 布局 */
+  --app-max-width: 480px;
+  --tap-min: 44px;
+}
+
+/* 令牌 —— 暗色（系统偏好；以 :not([data-theme="light"]) 保护） */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #1a1918;
+    --color-surface: #262423;
+    --color-text: #ebe8e6;
+    --color-divider: color-mix(in srgb, #ebe8e6 30%, transparent);
+    --color-accent: #ff563c;
+    /* TODO: 暗底下的中性与强调色阶反转 */
+  }
+}
+
+/* 令牌 —— 暗色（手动切换；使两个方向都生效） */
+:root[data-theme="dark"] {
+  --color-bg: #1a1918;
+  --color-surface: #262423;
+  --color-text: #ebe8e6;
+  --color-divider: color-mix(in srgb, #ebe8e6 30%, transparent);
+  --color-accent: #ff563c;
+  /* TODO: 同上 */
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   基础
+   ══════════════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  overscroll-behavior: none;
+}
+
+/* 局内以手势为主，禁止误选文本；输入框除外 */
+* { -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+input, textarea { -webkit-user-select: text; user-select: text; }
+
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   骨架布局                                              SPEC §12.1
+   ══════════════════════════════════════════════════════════════════ */
+.app-shell {
+  max-width: var(--app-max-width);
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.screen { display: flex; flex-direction: column; flex: 1; }
+.screen[hidden] { display: none; }
+
+/* 固定：控制区 / 警告区 / 步骤区；仅玩家网格可滚动 */
+.game-header  { /* TODO */ }
+.alert-banner { /* TODO —— 常驻，需点击确认，SPEC §10.2 */ }
+.phase-panel  { /* TODO */ }
+.undo-bar     { /* TODO —— 先执行 + 撤销条，SPEC §8.2 */ }
+
+.player-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding: var(--space-3);
+}
+/* 自适应列数（SPEC §12.2） */
+.player-grid[data-columns="3"] { grid-template-columns: repeat(3, 1fr); }
+.player-grid[data-columns="4"] { grid-template-columns: repeat(4, 1fr); }
+.player-grid[data-columns="5"] { grid-template-columns: repeat(5, 1fr); }
+
+/* ══════════════════════════════════════════════════════════════════
+   TODO —— 组件层
+   ══════════════════════════════════════════════════════════════════
+   · .btn / .btn-primary / .btn-secondary / .btn-ghost / .btn-icon
+   · .btn-longpress（长按进度填充反馈，SPEC §8.2）
+   · .tag / .tag-accent / .tag-outline
+   · .field / .input
+   · .player-card（存活 / 阵亡折叠 / 已选 / 高亮脉冲）
+   · .skill-chip（已用 = 删除线 + 降不透明度，SPEC §6）
+   · .drag-handle / .dragging / .drop-gap（SPEC §4.1）
+   · .log-group / .log-entry / .filter-chip（SPEC §16）
+   · @keyframes alertPulse（SPEC §10.2）
+   ══════════════════════════════════════════════════════════════════ */

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  icons.svg — 角色图标 sprite
+  SPEC §12.5
+
+  19 个手绘图标，Lucide 视觉语言：24×24 viewBox、1.5–2px 描边、
+  currentColor、无填充。阵营不以颜色区分（单色方案），依靠图形本身。
+
+  狼族以「基础狼形 + 修饰符」区分，使驱动死亡触发逻辑的角色可辨识：
+    普通狼人 基础狼形 · 狼王 +王冠 · 白狼王 +王冠+爆裂星芒
+    狼美人 +唇形/心形 · 隐狼 虚线/残缺轮廓 · 机械狼 +齿轮/螺栓
+
+  ⚠️ 尚未绘制 —— 仅 symbol 占位就位。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" hidden>
+  <defs>
+    <!-- 共用绘制参数：fill="none" stroke="currentColor" stroke-width="1.6"
+         stroke-linecap="round" stroke-linejoin="round" -->
+  </defs>
+
+  <!-- ── 狼人阵营 ─────────────────────────────────────────────── -->
+  <symbol id="icon-wolf" viewBox="0 0 24 24"><!-- TODO 基础狼形 --></symbol>
+  <symbol id="icon-wolfking" viewBox="0 0 24 24"><!-- TODO 狼形 + 王冠 --></symbol>
+  <symbol id="icon-whitewolfking" viewBox="0 0 24 24"><!-- TODO 狼形 + 王冠 + 爆裂星芒 --></symbol>
+  <symbol id="icon-wolfbeauty" viewBox="0 0 24 24"><!-- TODO 狼形 + 唇形/心形 --></symbol>
+  <symbol id="icon-hiddenwolf" viewBox="0 0 24 24"><!-- TODO 虚线/残缺狼形 --></symbol>
+  <symbol id="icon-mechwolf" viewBox="0 0 24 24"><!-- TODO 狼形 + 齿轮/螺栓 --></symbol>
+
+  <!-- ── 神职角色 ─────────────────────────────────────────────── -->
+  <symbol id="icon-seer" viewBox="0 0 24 24"><!-- TODO 眼睛 --></symbol>
+  <symbol id="icon-witch" viewBox="0 0 24 24"><!-- TODO 药瓶 --></symbol>
+  <symbol id="icon-hunter" viewBox="0 0 24 24"><!-- TODO 枪 / 准星 --></symbol>
+  <symbol id="icon-guard" viewBox="0 0 24 24"><!-- TODO 盾牌 --></symbol>
+  <symbol id="icon-idiot" viewBox="0 0 24 24"><!-- TODO 小丑帽 / 铃铛 --></symbol>
+  <symbol id="icon-knight" viewBox="0 0 24 24"><!-- TODO 剑 --></symbol>
+  <symbol id="icon-cupid" viewBox="0 0 24 24"><!-- TODO 心 + 箭 --></symbol>
+  <symbol id="icon-magician" viewBox="0 0 24 24"><!-- TODO 礼帽 / 交换箭头 --></symbol>
+  <symbol id="icon-gravekeeper" viewBox="0 0 24 24"><!-- TODO 墓碑 --></symbol>
+  <symbol id="icon-fox" viewBox="0 0 24 24"><!-- TODO 狐狸头 --></symbol>
+  <symbol id="icon-bear" viewBox="0 0 24 24"><!-- TODO 熊掌 --></symbol>
+  <symbol id="icon-psychic" viewBox="0 0 24 24"><!-- TODO 水晶球 --></symbol>
+
+  <!-- ── 平民阵营 ─────────────────────────────────────────────── -->
+  <symbol id="icon-villager" viewBox="0 0 24 24"><!-- TODO 人形 --></symbol>
+
+  <!-- ── 状态标记（非角色） ───────────────────────────────────── -->
+  <symbol id="icon-lover" viewBox="0 0 24 24"><!-- TODO 双心，情侣状态 SPEC §5.3 --></symbol>
+</svg>
