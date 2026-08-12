@@ -873,7 +873,50 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .death-proposal-explanation { flex: 1 1 auto; font-size: 13px; }
 
 /* ══════════════════════════════════════════════════════════════════
-   TODO —— 局内布局区块（日志 / 战报见票 #13 起）
-   ══════════════════════════════════════════════════════════════════
-   · .log-group / .log-entry / .filter-chip（SPEC §16）
+   阵营计数条                                                SPEC §17
    ══════════════════════════════════════════════════════════════════ */
+.game-header-title-group {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.camp-count { font-size: 13px; color: var(--color-neutral-600); }
+.camp-count[data-has-unknown="true"] { color: var(--color-accent); }
+
+/* ══════════════════════════════════════════════════════════════════
+   战报页                                                    SPEC §4.4
+   ══════════════════════════════════════════════════════════════════ */
+.report-section { display: flex; flex-direction: column; gap: var(--space-2); }
+.report-section-title { margin: 0; font-size: 14px; }
+.report-actions { padding-bottom: var(--space-4); }
+
+.report-roster {
+  display: flex;
+  flex-direction: column;
+  border: 2px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.report-roster-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+  font-size: 13px;
+}
+.report-roster-row:last-child { border-bottom: none; }
+.report-roster-row.is-dead { color: var(--color-neutral-600); }
+.report-roster-seat { font-weight: 700; min-width: 3em; }
+.report-roster-name { min-width: 4em; }
+.report-roster-role { flex: 1 1 auto; }
+.report-roster-time { color: var(--color-neutral-600); }
+
+.report-log { display: flex; flex-direction: column; gap: var(--space-2); }
+.log-group-header-static {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-200);
+  font-weight: 700;
+}

@@ -13,8 +13,9 @@
  * 追踪 / 信息展示（#11）、天亮结算 / 死亡触发队列 / 警报通道（#12）、
  * 白天流程与主动行为：放逐、骑士决斗、白狼王自爆带人、普通狼人自爆、
  * 情侣手动配对、进入下一夜（#13）与主题应用、计时器（自由 / 发言两种模式）
- * 与每日随机首发言（#14）已实现。日志、战报等留给 #15–#17，此处仅提供
- * 可路由到达的最小占位屏，不实现其内容。
+ * 与每日随机首发言（#14）、局内日志页（#15）、阵营计数条 / 战报页 / 日志导出
+ * （#16）已实现。PWA 相关（Service Worker 注册）留给 #17，此处仅提供
+ * 可路由到达的最小占位实现。
  */
 
 import {
@@ -151,6 +152,8 @@ function createInitialState() {
     log: [],
     history: [],
     alertQueue: [],              // 待呈现的警报队列，一次一条（SPEC §10.2 —— 常驻至法官点击「知道了」）
+    startedAt: null,             // 游戏开始时间戳，用于战报页计算总时长（SPEC §4.4）
+    winner: null,                // 'good' | 'wolf' | 'draw' | null，战报页由法官点选（SPEC §17）
   };
 }
 
@@ -228,6 +231,8 @@ function normalizeLoadedState(saved) {
     pendingDeaths: saved.pendingDeaths ?? [],
     triggerQueue: saved.triggerQueue ?? [],
     pendingNightAdvance: saved.pendingNightAdvance ?? false,
+    startedAt: saved.startedAt ?? null,
+    winner: saved.winner ?? null,
   };
 }
 
@@ -614,13 +619,17 @@ function renderAlertBanner() {
   `;
 }
 
-/** 固定控制区：阶段标题 + 计时器 + 撤销 / 日志 / 长按结束。SPEC §12.1 / §14（阵营计数见 #17） */
+/** 固定控制区：阶段标题 + 阵营计数条 + 计时器 + 撤销 / 日志 / 长按结束。SPEC §12.1 / §14 / §17 */
 function renderGameHeader() {
   const header = document.getElementById('game-header');
   if (!header) return;
+  const counts = campCounts(state);
   header.innerHTML = `
     <div class="game-header-row">
-      <h1 class="game-header-title">第${state.day}${state.phase === 'night' ? '晚' : '天'}</h1>
+      <div class="game-header-title-group">
+        <h1 class="game-header-title">第${state.day}${state.phase === 'night' ? '晚' : '天'}</h1>
+        <span class="camp-count"${counts.unknown > 0 ? ' data-has-unknown="true"' : ''} aria-label="阵营计数，仅统计身份已知且存活的玩家">${campCountLabel(counts)}</span>
+      </div>
       <div class="actions">
         <button type="button" class="btn btn-icon" data-action="undo" aria-label="撤销">↶</button>
         <button type="button" class="btn btn-secondary" data-action="goto-log">日志</button>
@@ -636,6 +645,12 @@ function renderGameHeader() {
     hideUndoBar();
     update({ screen: 'report' }, { snapshot: false });
   });
+}
+
+/** 阵营计数条文案，形如「狼3·神2·民4」；存在未知身份座位时附加提示。SPEC §17 */
+function campCountLabel(counts) {
+  const base = `狼${counts.wolf}·神${counts.god}·民${counts.civ}`;
+  return counts.unknown > 0 ? `${base} · 未知${counts.unknown}（不可尽信）` : base;
 }
 
 /**
@@ -1135,19 +1150,208 @@ function toggleLogGroup(key) {
   render();
 }
 
-/** 战报页。内容详见 #16。SPEC §4.4 */
+/** 胜方选项显示名。SPEC §17 —— 胜负由法官在战报页点选，应用不做自动判定。 */
+const WINNER_OPTIONS = [
+  { key: 'good', label: '好人胜' },
+  { key: 'wolf', label: '狼人胜' },
+  { key: 'draw', label: '平局' },
+];
+
+/**
+ * 战报页：法官点选胜方、完整名单（座位 / 姓名 / 身份 / 死因 / 死亡时间）、
+ * 总时长与天数、完整日志；复制日志文本 / 开新局（长按）/ 返回。SPEC §4.4
+ */
 function renderReport() {
   const host = document.getElementById('screen-report');
   if (!host) return;
+
+  const winnerButtonsHtml = WINNER_OPTIONS.map(w => `
+    <button type="button" class="btn btn-secondary${state.winner === w.key ? ' is-active' : ''}" data-action="set-winner" data-winner="${w.key}">${w.label}</button>
+  `).join('');
+
+  const rosterHtml = state.players.map(renderReportRosterRow).join('');
+  const logHtml = renderReportLogHtml();
+  const durationText = formatDuration(reportDurationMs());
+
   host.innerHTML = `
-    <div class="wrap">
-      <h1>战报</h1>
-      <p class="note">胜负判定、完整名单与导出见票 #16。</p>
-      <div class="actions">
-        <button type="button" class="btn btn-secondary" data-action="goto-game">‹ 返回</button>
+    <div class="wrap report-screen">
+      <div class="setup-header">
+        <h1>战报</h1>
+        <button type="button" class="btn btn-secondary" data-action="return-to-game-report">‹ 返回</button>
+      </div>
+
+      <section class="report-section">
+        <h2 class="report-section-title">胜方</h2>
+        <div class="actions" role="group" aria-label="胜方">${winnerButtonsHtml}</div>
+      </section>
+
+      <section class="report-section">
+        <p class="note">${state.playerCount}人局 · 共${state.day}天 · 用时 ${durationText}</p>
+      </section>
+
+      <section class="report-section">
+        <h2 class="report-section-title">名单</h2>
+        <div class="report-roster">${rosterHtml}</div>
+      </section>
+
+      <section class="report-section">
+        <h2 class="report-section-title">完整日志</h2>
+        <div class="report-log">${logHtml}</div>
+      </section>
+
+      <div class="actions report-actions">
+        <button type="button" class="btn btn-secondary" data-action="copy-log-report">复制日志文本</button>
+        <button type="button" class="btn btn-secondary btn-longpress" data-action="new-game-report" data-longpress="true">
+          <span>开新局</span>
+        </button>
       </div>
     </div>
   `;
+
+  bindLongPressGuard(host.querySelector('[data-action="new-game-report"]'), startNewGameFromReport);
+}
+
+/** 名单单行：座位 / 姓名 / 身份 / 死因（或存活）/ 死亡时间。SPEC §4.4 */
+function renderReportRosterRow(p) {
+  const roleId = p.effectiveRoleId ?? p.roleId;
+  const roleLabel = roleId ? (ROLE_MAP[roleId]?.name ?? '未知身份') : '未知身份';
+  const nameLabel = p.name || `座位${p.seat}`;
+  const statusLabel = p.alive ? '存活' : escapeText(p.deathReason || '其他');
+  const timeLabel = p.alive ? '—' : `第${p.deathDay}${p.deathPhase === 'night' ? '夜' : '天'}`;
+  return `
+    <div class="report-roster-row${p.alive ? '' : ' is-dead'}">
+      <span class="report-roster-seat">${p.seat}号</span>
+      <span class="report-roster-name">${escapeText(nameLabel)}</span>
+      <span class="report-roster-role">${escapeText(roleLabel)}</span>
+      <span class="report-roster-status">${statusLabel}</span>
+      <span class="report-roster-time">${timeLabel}</span>
+    </div>
+  `;
+}
+
+/**
+ * 完整日志的只读展示：按 `第N夜` / `第N天` 分组，组内按写入顺序（时间正序），
+ * 组间按发生顺序正序排列（不折叠，「完整」二字即指不筛不藏）。SPEC §4.4
+ */
+function renderReportLogHtml() {
+  if (!state.log.length) return '<p class="note">暂无日志</p>';
+  const groups = [];
+  let current = null;
+  state.log.forEach(entry => {
+    const key = `${entry.day}-${entry.phase}`;
+    if (!current || current.key !== key) {
+      current = { key, day: entry.day, phase: entry.phase, entries: [] };
+      groups.push(current);
+    }
+    current.entries.push(entry);
+  });
+  return groups.map(g => {
+    const label = `第${g.day}${g.phase === 'night' ? '夜' : '天'}`;
+    const rowsHtml = g.entries.map(e => `
+      <div class="log-entry log-entry-${e.type}">
+        <span class="tag tag-outline">${LOG_TYPE_LABEL[e.type]}</span>
+        <span class="log-entry-text">${escapeText(e.text)}</span>
+      </div>
+    `).join('');
+    return `
+      <div class="log-group">
+        <div class="log-group-header-static">${label}</div>
+        <div class="log-group-body">${rowsHtml}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+/** 已进行的总时长（毫秒），从 startedAt 到当前。未记录开始时间（旧存档）时为 0。SPEC §4.4 */
+function reportDurationMs() {
+  if (state.startedAt == null) return 0;
+  return Math.max(0, Date.now() - state.startedAt);
+}
+
+/** mm 分 ss 秒格式化；超过一小时附带小时数。 */
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}小时${mm}分${ss}秒` : `${m}分${ss}秒`;
+}
+
+/** 法官点选胜方。纯记录，不驱动任何自动判定逻辑。SPEC §17 */
+function setWinner(winner) {
+  update({ winner }, { snapshot: false });
+}
+
+/** 返回：对局继续，误触可恢复。重新申请屏幕常亮（长按结束时已释放）。SPEC §4.4 / §8.1 */
+function returnToGameFromReport() {
+  gotoScreen('game');
+  requestWakeLock();
+}
+
+/** 开新局：清空存档槽，回到设置向导。破坏性操作，经长按守护确认。SPEC §4.4 / §8.2 / §11.1 */
+function startNewGameFromReport() {
+  releaseWakeLock();
+  clearGame();
+  pendingResume = null;
+  resetGameUiState();
+  update(() => createInitialState(), { snapshot: false });
+}
+
+/** 复制日志文本：将全部日志写入剪贴板，供法官粘贴到微信群等外部渠道留存。SPEC §4.4 */
+async function copyReportLog() {
+  const text = buildLogExportText();
+  const copied = await copyTextToClipboard(text);
+  showToast(copied ? '已复制日志文本' : '复制失败，请手动截图保存');
+}
+
+/** 全部日志的纯文本导出，按 `第N夜` / `第N天` 分组标题 + 逐条文本。 */
+function buildLogExportText() {
+  const lines = [];
+  let lastKey = null;
+  state.log.forEach(entry => {
+    const key = `${entry.day}-${entry.phase}`;
+    if (key !== lastKey) {
+      lastKey = key;
+      lines.push(`第${entry.day}${entry.phase === 'night' ? '夜' : '天'}`);
+    }
+    lines.push(entry.text);
+  });
+  return lines.join('\n');
+}
+
+/** 写入剪贴板，优先 Clipboard API，回落至 execCommand（旧内核 WebView）。返回是否成功。 */
+async function copyTextToClipboard(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* 回落至 execCommand */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** 瞬时非阻断状态条，无撤销动作（用于无状态变更可撤销的提示，如复制成功）。SPEC §8.2 */
+function showToast(text) {
+  const bar = document.getElementById('undo-bar');
+  if (!bar) return;
+  if (undoBarTimer) { clearTimeout(undoBarTimer); undoBarTimer = null; }
+  bar.hidden = false;
+  bar.innerHTML = `<span class="undo-bar-text">${escapeText(text)}</span>`;
+  undoBarTimer = setTimeout(hideUndoBar, UNDO_BAR_MS);
 }
 
 /**
@@ -1768,7 +1972,7 @@ function startGame() {
   };
   identitySelectedSeat = null;
   resetGameUiState();
-  update({ screen: 'game', log: [...state.log, entry] });
+  update({ screen: 'game', log: [...state.log, entry], startedAt: Date.now() });
   requestWakeLock();
 }
 
@@ -3096,6 +3300,9 @@ function handleAppClick(e) {
       break;
     }
     case 'delete-note':        deleteNote(Number(el.dataset.index)); break;
+    case 'set-winner':            setWinner(el.dataset.winner); break;
+    case 'copy-log-report':       copyReportLog(); break;
+    case 'return-to-game-report': returnToGameFromReport(); break;
     default: break;
   }
 }
@@ -3167,8 +3374,6 @@ function deleteNote(index) {
   update({ log });
   showUndoBar('已删除备注');
 }
-
-function exportLogText()                { throw new Error('未实现'); }  // 复制到剪贴板 —— 战报页范围，见 #16
 
 // ══════════════════════════════════════════════════════════════════
 // 平台能力
