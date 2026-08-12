@@ -9,8 +9,9 @@
  *
  * 状态容器（唯一写入口 / 撤销 / 版本化持久化）、屏幕路由、设置向导
  * 全部四步（人数与角色牌 #7、玩家名单与姓名池 #8、夜晚顺序与计时 #8、
- * 分配身份与开局 #9）与主题应用已实现。局内网格、夜晚/白天流程、计时器、
- * 日志、战报等留给 #10–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
+ * 分配身份与开局 #9）、局内玩家网格与死亡标记（#10）、夜晚流程引导 / 技能
+ * 追踪 / 信息展示（#11）与主题应用已实现。白天流程、计时器、日志、战报等
+ * 留给 #12–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
  */
 
 import {
@@ -49,6 +50,14 @@ const WITCH_SELF_SAVE_LABEL = { never: '不可', firstNightOnly: '仅首夜', al
 const SKILL_LABELS = {
   antidote: '解药', poison: '毒药', shot: '开枪', selfDestruct: '自爆',
   duel: '决斗', link: '连线', swap: '交换', copy: '复制',
+  charm: '魅惑', revealed: '翻牌', active: '技能',
+};
+
+/** 夜晚步骤日志文本的动词（SPEC §9 / §16.1 —— 例：「预言家查验 5号 → 狼人」） */
+const STEP_LOG_VERB = {
+  wolfkill: '击杀', guard: '守护', charm: '魅惑', mechwolf: '复制',
+  cupid: '连接', magician: '交换', seer: '查验', psychic: '查验',
+  fox: '查验', gravekeeper: '查验', bear: '判定',
 };
 
 const DAY_TIMER_STEP = 30;
@@ -83,6 +92,12 @@ let loverPairFirstSeat = null;     // 情侣配对已选中的第一个座位
 let gameExpandedSeat = null;       // 当前展开信息面板的座位（存活或阵亡）
 let gameDeathPickerSeat = null;    // 当前展示死因芯片的座位（长按触发）
 let gameRoleEditSeat = null;       // 当前正在「修改身份」的座位
+
+// ── 夜晚步骤 —— 当前步骤尚未确认的目标选择，纯 UI 瞬态，不入 GameState/撤销栈。
+//    确认（完成）时才写入 nightActions。SPEC §4.2 / §9 ──
+let nightStepTargets = [];         // 当前步骤已点选的目标座位（非女巫步骤）
+let witchChoice = null;            // 'save' | 'poison' | 'skip' | null —— 女巫本步骤已选择的行动
+let witchPoisonTarget = null;      // 女巫「使用毒药」已点选的目标座位
 
 let undoBarTimer = null;           // 撤销条自动隐藏定时器
 let wakeLockSentinel = null;       // Screen Wake Lock 句柄
@@ -563,7 +578,7 @@ function renderGameHeader() {
   });
 }
 
-/** 固定步骤区。夜晚 / 白天流程内容见 #11–#13；此处仅承载「设为情侣」配对提示。SPEC §12.1 */
+/** 固定步骤区。夜晚流程见本节；白天流程见 #12–#13。SPEC §12.1 */
 function renderPhasePanel() {
   const panel = document.getElementById('phase-panel');
   if (!panel) return;
@@ -578,7 +593,125 @@ function renderPhasePanel() {
     `;
     return;
   }
-  panel.innerHTML = `<p class="note">夜晚 / 白天流程见票 #11–#13。</p>`;
+
+  if (state.phase !== 'night') {
+    panel.innerHTML = `<p class="note">白天流程见票 #12–#13。</p>`;
+    return;
+  }
+
+  const steps = activeNightSteps(state);
+  if (state.stepIndex >= steps.length) {
+    panel.innerHTML = `
+      <div class="phase-step phase-step-dawn">
+        <p class="note">夜晚步骤已全部完成</p>
+        <button type="button" class="btn btn-primary btn-block" data-action="end-night">天亮了</button>
+      </div>
+    `;
+    return;
+  }
+
+  panel.innerHTML = renderNightStepHtml(steps[state.stepIndex]);
+}
+
+/** 当前活跃夜晚步骤所对应的角色（座位已知的行动者）。 */
+function stepActorSeat(stepId) {
+  const p = state.players.find(p =>
+    p.alive && ROLE_MAP[p.effectiveRoleId ?? p.roleId]?.nightStep === stepId);
+  return p ? p.seat : null;
+}
+
+/** 当前步骤对应的角色声明（用于 §8.4 隐式补全；wolfkill 存在多个候选角色时取第一个，即普通狼人）。 */
+function roleForNightStep(stepId) {
+  return ROLES.find(r => r.nightStep === stepId) ?? null;
+}
+
+/** 单个夜晚步骤面板：角色名 + 口播提示 + 目标选择/信息答案 + 完成·跳过。SPEC §4.2 / §9 */
+function renderNightStepHtml(stepId) {
+  const meta = STEP_META[stepId];
+  const { body, confirmDisabled } = renderNightStepBody(stepId, meta);
+
+  return `
+    <div class="phase-step">
+      <div class="phase-step-header">
+        <h2 class="phase-step-title">${escapeText(meta.name)}</h2>
+        <p class="phase-step-instruction">${escapeText(meta.instruction)}</p>
+      </div>
+      ${body}
+      <div class="phase-step-actions">
+        <button type="button" class="btn btn-secondary" data-action="skip-night-step">跳过</button>
+        <button type="button" class="btn btn-primary" data-action="confirm-night-step"${confirmDisabled ? ' disabled' : ''}>完成</button>
+      </div>
+    </div>
+  `;
+}
+
+/** 未知身份的降级提示。SPEC §8.4 / §9 */
+const UNKNOWN_INFO_NOTE = '<p class="note">未知身份 — 请手动判断</p>';
+
+function renderNightStepBody(stepId, meta) {
+  if (stepId === 'witch') return renderWitchStepBody();
+
+  if (meta.targets === 0) {
+    const info = computeStepInfo(state, stepId, []);
+    if (!info.known) return { body: UNKNOWN_INFO_NOTE, confirmDisabled: false };
+    const seatTag = info.seat != null ? `<span class="tag">${info.seat}号</span>` : '';
+    return {
+      body: `<div class="step-info-answer">${seatTag}<span class="answer-text">${escapeText(info.result)}</span></div>`,
+      confirmDisabled: false,
+    };
+  }
+
+  const info = meta.info && nightStepTargets.length ? computeStepInfo(state, stepId, nightStepTargets) : null;
+  const targetsLabel = nightStepTargets.length
+    ? nightStepTargets.map(s => `${s}号`).join('、')
+    : '';
+
+  let body;
+  if (!nightStepTargets.length) {
+    body = `<p class="note">请在下方玩家网格中点选目标（0/${meta.targets}）</p>`;
+  } else if (!meta.info) {
+    body = `<p class="note">已选 ${targetsLabel}（${nightStepTargets.length}/${meta.targets}）</p>`;
+  } else if (info.known) {
+    const chainTag = info.chain ? info.chain.map(s => `${s}号`).join('·') : targetsLabel;
+    body = `<div class="step-info-answer"><span class="tag">${chainTag}</span><span class="answer-text">${escapeText(info.result)}</span></div>`;
+  } else {
+    body = `<div class="step-info-answer"><span class="tag">${targetsLabel}</span></div>${UNKNOWN_INFO_NOTE}`;
+  }
+
+  return { body, confirmDisabled: nightStepTargets.length < meta.targets };
+}
+
+/** 女巫步骤：先显示今晚死亡目标，再呈现解药 / 毒药 / 不使用。SPEC §9 */
+function renderWitchStepBody() {
+  const actorSeat = stepActorSeat('witch');
+  const actor = state.players.find(p => p.seat === actorSeat);
+  const nightDeathSeat = state.nightActions.wolfTarget ?? null;
+  const hasAntidote = !actor || actor.skills?.antidote !== false;
+  const hasPoison = !actor || actor.skills?.poison !== false;
+
+  const deathLine = nightDeathSeat != null
+    ? `<p class="step-death-line">今晚死亡：${nightDeathSeat}号</p>`
+    : `<p class="step-death-line">今晚无夜间死亡信息</p>`;
+
+  const buttons = `
+    <div class="witch-actions">
+      ${hasAntidote && nightDeathSeat != null ? `<button type="button" class="btn btn-secondary${witchChoice === 'save' ? ' is-active' : ''}" data-action="witch-choice" data-choice="save">使用解药</button>` : ''}
+      ${hasPoison ? `<button type="button" class="btn btn-secondary${witchChoice === 'poison' ? ' is-active' : ''}" data-action="witch-choice" data-choice="poison">使用毒药</button>` : ''}
+      <button type="button" class="btn btn-secondary${witchChoice === 'skip' ? ' is-active' : ''}" data-action="witch-choice" data-choice="skip">不使用</button>
+    </div>
+  `;
+
+  let selectionLine = '';
+  if (witchChoice === 'save') {
+    selectionLine = `<p class="note">将对 ${nightDeathSeat}号 使用解药</p>`;
+  } else if (witchChoice === 'poison') {
+    selectionLine = witchPoisonTarget != null
+      ? `<p class="note">将对 ${witchPoisonTarget}号 使用毒药</p>`
+      : `<p class="note">请在下方玩家网格中点选毒药目标</p>`;
+  }
+
+  const confirmDisabled = witchChoice == null || (witchChoice === 'poison' && witchPoisonTarget == null);
+  return { body: deathLine + buttons + selectionLine, confirmDisabled };
 }
 
 /** 日志页。内容详见 #15。SPEC §16 */
@@ -620,7 +753,8 @@ function renderPlayerGrid() {
   if (!grid) return;
   const columns = columnsForCount(state.playerCount);
   grid.dataset.columns = String(columns);
-  grid.innerHTML = state.players.map(p => renderPlayerCard(p, columns)).join('');
+  const { selectable, selected } = activeNightTargetSeats();
+  grid.innerHTML = state.players.map(p => renderPlayerCard(p, columns, selectable, selected)).join('');
 
   // 长按 550ms 标记阵亡，仅绑定于折叠态的存活卡片。SPEC §8.3
   grid.querySelectorAll('button.player-card:not(.is-dead)').forEach(el => {
@@ -628,8 +762,31 @@ function renderPlayerGrid() {
   });
 }
 
+/**
+ * 当前是否处于夜晚步骤的目标选择状态，返回可点选 / 已选中的座位集合。
+ * SPEC §4.2 / §8.3 —— 点选目标座位时卡片高亮。
+ */
+function activeNightTargetSeats() {
+  const empty = { selectable: new Set(), selected: new Set() };
+  if (state.phase !== 'night' || loverPairMode) return empty;
+  const steps = activeNightSteps(state);
+  const stepId = steps[state.stepIndex];
+  if (!stepId) return empty;
+
+  if (stepId === 'witch') {
+    if (witchChoice !== 'poison') return empty;
+    const alive = new Set(state.players.filter(p => p.alive).map(p => p.seat));
+    return { selectable: alive, selected: new Set(witchPoisonTarget != null ? [witchPoisonTarget] : []) };
+  }
+
+  const meta = STEP_META[stepId];
+  if (!meta || meta.targets === 0) return empty;
+  const alive = new Set(state.players.filter(p => p.alive).map(p => p.seat));
+  return { selectable: alive, selected: new Set(nightStepTargets) };
+}
+
 /** 单张玩家卡片：折叠 / 展开态，按存活与人数密度分派。SPEC §12.2 / §8.3 */
-function renderPlayerCard(p, columns) {
+function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats = new Set()) {
   const role = p.roleId ? ROLE_MAP[p.roleId] : null;
   const roleName = role ? role.name : '未知身份';
   const displayName = escapeText(p.name || `${p.seat}号`);
@@ -711,8 +868,11 @@ function renderPlayerCard(p, columns) {
     `;
   }
 
+  const isSelectable = selectableSeats.has(p.seat);
+  const isSelected = selectedSeats.has(p.seat);
+  const targetClass = `${isSelectable ? ' is-selectable' : ''}${isSelected ? ' is-selected' : ''}`;
   return `
-    <button type="button" class="player-card" data-action="toggle-alive-expand" data-seat="${p.seat}">
+    <button type="button" class="player-card${targetClass}" data-action="toggle-alive-expand" data-seat="${p.seat}">
       ${renderCardBodyByDensity(p, role, columns)}
     </button>
   `;
@@ -759,15 +919,31 @@ function renderCompactSkillChips(p, role) {
   return chips ? `<div class="skill-chip-row">${chips}</div>` : '';
 }
 
-/** 展开面板内的技能状态：图标标签 + ✓/✗。SPEC §6 */
+/** 展开面板内的技能状态：图标标签 + ✓/✗，点击可手动修正。SPEC §6 */
 function renderSkillStatusHtml(p, role) {
   if (!role || !role.skills.length) return '<p class="note">无可追踪技能</p>';
   const chips = role.skills.filter(key => key !== 'lastTarget').map(key => {
     const used = isSkillUsed(p, key);
     const label = SKILL_LABELS[key] ?? key;
-    return `<span class="skill-chip${used ? ' is-used' : ''}">${escapeText(label)}${used ? ' ✗' : ' ✓'}</span>`;
+    return `<button type="button" class="skill-chip skill-chip-toggle${used ? ' is-used' : ''}" data-action="toggle-skill" data-seat="${p.seat}" data-skill="${key}">${escapeText(label)}${used ? ' ✗' : ' ✓'}</button>`;
   }).join('');
   return chips ? `<div class="skill-status-row">${chips}</div>` : '<p class="note">无可追踪技能</p>';
+}
+
+/** 手动修正任一技能状态（辅助型原则 —— 自动消耗永远可覆盖）。SPEC §6 */
+function toggleSkill(seat, key) {
+  const player = state.players.find(p => p.seat === seat);
+  if (!player) return;
+  const used = isSkillUsed(player, key);
+  let players;
+  if (key === 'revealed') {
+    players = state.players.map(p => p.seat === seat ? { ...p, flags: { ...p.flags, idiotRevealed: !used } } : p);
+  } else if (key === 'active') {
+    players = state.players.map(p => p.seat === seat ? { ...p, flags: { ...p.flags, foxDisabled: !used } } : p);
+  } else {
+    players = state.players.map(p => p.seat === seat ? { ...p, skills: { ...p.skills, [key]: used } } : p);
+  }
+  update({ players });
 }
 
 /** 技能槽是否已耗尽。白痴翻牌 / 狐狸失效记录于 flags，其余记录于 skills。SPEC §6 */
@@ -1148,14 +1324,37 @@ function resetGameUiState() {
   gameRoleEditSeat = null;
   loverPairMode = false;
   loverPairFirstSeat = null;
+  resetNightStepUiState();
 }
 
-/** 点击存活/阵亡折叠卡片：情侣配对模式下路由至配对逻辑，否则切换信息面板展开。SPEC §8.3 */
+/** 重置当前夜晚步骤尚未确认的目标选择。步骤切换 / 进出局内时调用。 */
+function resetNightStepUiState() {
+  nightStepTargets = [];
+  witchChoice = null;
+  witchPoisonTarget = null;
+}
+
+/**
+ * 点击存活/阵亡折叠卡片：情侣配对模式下路由至配对逻辑；
+ * 夜晚步骤进行中点击存活卡片则路由至目标选择（SPEC §4.2 / §8.4）；
+ * 否则切换信息面板展开。SPEC §8.3
+ */
 function handleCardTap(seat) {
   if (loverPairMode) {
     handleLoverSeatClick(seat);
     return;
   }
+
+  const player = state.players.find(p => p.seat === seat);
+  if (state.phase === 'night' && player?.alive) {
+    const steps = activeNightSteps(state);
+    const stepId = steps[state.stepIndex];
+    if (stepId && (stepId === 'witch' ? witchChoice === 'poison' : STEP_META[stepId].targets > 0)) {
+      selectStepTarget(seat, stepId);
+      return;
+    }
+  }
+
   gameDeathPickerSeat = null;
   gameRoleEditSeat = null;
   gameExpandedSeat = gameExpandedSeat === seat ? null : seat;
@@ -1203,16 +1402,245 @@ function startLoverPairFromGame(seat) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 流程 —— 夜晚（#11–#13 范围，暂未实现）
+// 流程 —— 夜晚                                          SPEC §4.2 / §9
 // ══════════════════════════════════════════════════════════════════
 
-function beginNight()          { throw new Error('未实现'); }  // SPEC §4.2
-function confirmNightStep()    { throw new Error('未实现'); }
-function skipNightStep()       { throw new Error('未实现'); }
-function selectStepTarget(seat){ throw new Error('未实现'); }  // 含身份隐式补全 §8.4
+/**
+ * 点选当前夜晚步骤的目标座位。含身份隐式补全（SPEC §8.4）：
+ * 若该座位身份未知，补全为当前步骤对应的角色。
+ */
+function selectStepTarget(seat, stepId) {
+  let players = state.players;
+  const player = players.find(p => p.seat === seat);
+  if (player && player.roleId == null) {
+    const role = roleForNightStep(stepId);
+    if (role) {
+      players = players.map(p =>
+        p.seat === seat ? { ...p, roleId: role.id, effectiveRoleId: role.id } : p);
+    }
+  }
 
-/** 天亮：调用 resolveDawn，呈现可增删的死亡提案。SPEC §5.1 */
-function endNight() { throw new Error('未实现'); }
+  if (stepId === 'witch') {
+    witchPoisonTarget = seat;
+  } else {
+    const meta = STEP_META[stepId];
+    const idx = nightStepTargets.indexOf(seat);
+    if (idx >= 0) {
+      nightStepTargets = nightStepTargets.filter(s => s !== seat);
+    } else if (nightStepTargets.length >= meta.targets) {
+      nightStepTargets = [...nightStepTargets.slice(1), seat];
+    } else {
+      nightStepTargets = [...nightStepTargets, seat];
+    }
+  }
+
+  if (players !== state.players) {
+    update({ players });
+  } else {
+    render();
+  }
+}
+
+/** 结构化步骤日志文本，格式如「预言家查验 5号 → 狼人」。SPEC §9 / §16.1 */
+function buildStepLogEntry(stepId, actorSeat, targets, resultText) {
+  const meta = STEP_META[stepId];
+  const verb = STEP_LOG_VERB[stepId] ?? '';
+  const targetsLabel = targets.length ? targets.map(s => `${s}号`).join('·') : '';
+  const suffix = targetsLabel ? ` ${targetsLabel}` : '';
+  const text = resultText != null
+    ? `${meta.name}${verb}${suffix} → ${resultText}`
+    : `${meta.name}${verb}${suffix}`;
+  return {
+    day: state.day, phase: state.phase, type: 'skill',
+    actor: actorSeat, targets: [...targets], text, result: resultText ?? null, ts: Date.now(),
+  };
+}
+
+/** 确认当前夜晚步骤：落库行动 / 技能消耗，写入日志，推进步骤指针。SPEC §4.2 / §6 */
+function confirmNightStep() {
+  const steps = activeNightSteps(state);
+  const stepId = steps[state.stepIndex];
+  if (!stepId) return;
+
+  if (stepId === 'witch') {
+    confirmWitchStep();
+    return;
+  }
+
+  const meta = STEP_META[stepId];
+  if (meta.targets > 0 && nightStepTargets.length < meta.targets) return;
+
+  const actorSeat = stepActorSeat(stepId);
+  let players = state.players;
+  let nightActions = state.nightActions;
+  let resultText = null;
+  let logTargets = nightStepTargets;
+
+  switch (stepId) {
+    case 'wolfkill': {
+      const target = nightStepTargets[0];
+      nightActions = { ...nightActions, wolfTarget: target };
+      break;
+    }
+    case 'guard': {
+      const target = nightStepTargets[0];
+      nightActions = { ...nightActions, guardTarget: target };
+      break;
+    }
+    case 'charm': {
+      const target = nightStepTargets[0];
+      players = players.map(p => p.seat === target ? { ...p, charmedBySeat: actorSeat } : p);
+      nightActions = { ...nightActions, charmTarget: target };
+      break;
+    }
+    case 'mechwolf': {
+      const target = nightStepTargets[0];
+      players = players.map(p =>
+        p.seat === actorSeat ? { ...p, skills: { ...p.skills, copy: false } } : p);
+      nightActions = { ...nightActions, mechwolfTarget: target };
+      break;
+    }
+    case 'cupid': {
+      const [a, b] = nightStepTargets;
+      players = players.map(p => {
+        if (p.seat === a) return { ...p, loverSeat: b };
+        if (p.seat === b) return { ...p, loverSeat: a };
+        if (p.seat === actorSeat) return { ...p, skills: { ...p.skills, link: false } };
+        return p;
+      });
+      nightActions = { ...nightActions, cupidLink: [a, b] };
+      break;
+    }
+    case 'magician': {
+      const [a, b] = nightStepTargets;
+      nightActions = { ...nightActions, magicianSwap: [a, b] };
+      break;
+    }
+    case 'seer': {
+      const info = computeStepInfo(state, 'seer', nightStepTargets);
+      nightActions = { ...nightActions, seerTarget: nightStepTargets[0] };
+      resultText = info.known ? info.result : '未知身份 — 请手动判断';
+      break;
+    }
+    case 'psychic': {
+      const info = computeStepInfo(state, 'psychic', nightStepTargets);
+      nightActions = { ...nightActions, psychicTarget: nightStepTargets[0] };
+      resultText = info.known ? info.result : '未知身份 — 请手动判断';
+      break;
+    }
+    case 'fox': {
+      const info = computeStepInfo(state, 'fox', nightStepTargets);
+      if (info.known && info.disablesFox && actorSeat != null) {
+        players = players.map(p =>
+          p.seat === actorSeat ? { ...p, flags: { ...p.flags, foxDisabled: true } } : p);
+      }
+      nightActions = { ...nightActions, foxStart: nightStepTargets[0] };
+      resultText = info.known ? info.result : '未知身份 — 请手动判断';
+      break;
+    }
+    case 'gravekeeper': {
+      const info = computeStepInfo(state, 'gravekeeper', []);
+      if (info.known) logTargets = [info.seat];
+      resultText = info.known ? info.result : '未知身份 — 请手动判断';
+      break;
+    }
+    case 'bear': {
+      const info = computeStepInfo(state, 'bear', []);
+      resultText = info.known ? info.result : '未知身份 — 请手动判断';
+      break;
+    }
+    default: break;
+  }
+
+  const entry = buildStepLogEntry(stepId, actorSeat, logTargets, resultText);
+  const patch = { players, nightActions, log: [...state.log, entry], stepIndex: state.stepIndex + 1 };
+  if (stepId === 'guard') patch.lastGuardTarget = nightStepTargets[0];
+
+  resetNightStepUiState();
+  update(patch);
+}
+
+/** 女巫步骤确认：解药 / 毒药 / 不使用，消耗对应技能槽。SPEC §6 / §9 */
+function confirmWitchStep() {
+  const actorSeat = stepActorSeat('witch');
+  const nightDeathSeat = state.nightActions.wolfTarget ?? null;
+
+  let witchAction;
+  let targets = [];
+  let resultText = null;
+  let players = state.players;
+
+  if (witchChoice === 'save') {
+    if (nightDeathSeat == null) return;
+    witchAction = { type: 'save', target: nightDeathSeat };
+    targets = [nightDeathSeat];
+    resultText = `${nightDeathSeat}号`;
+    if (actorSeat != null) {
+      players = players.map(p =>
+        p.seat === actorSeat ? { ...p, skills: { ...p.skills, antidote: false } } : p);
+    }
+  } else if (witchChoice === 'poison') {
+    if (witchPoisonTarget == null) return;
+    witchAction = { type: 'poison', target: witchPoisonTarget };
+    targets = [witchPoisonTarget];
+    resultText = `${witchPoisonTarget}号`;
+    if (actorSeat != null) {
+      players = players.map(p =>
+        p.seat === actorSeat ? { ...p, skills: { ...p.skills, poison: false } } : p);
+    }
+  } else if (witchChoice === 'skip') {
+    witchAction = { type: 'skip' };
+  } else {
+    return;
+  }
+
+  const verb = witchChoice === 'save' ? '使用解药' : witchChoice === 'poison' ? '使用毒药' : '不使用';
+  const text = resultText != null ? `女巫${verb} → ${resultText}` : `女巫${verb}`;
+  const entry = {
+    day: state.day, phase: state.phase, type: 'skill',
+    actor: actorSeat, targets, text, result: resultText, ts: Date.now(),
+  };
+
+  resetNightStepUiState();
+  update({
+    players,
+    nightActions: { ...state.nightActions, witchAction },
+    log: [...state.log, entry],
+    stepIndex: state.stepIndex + 1,
+  });
+}
+
+/** 女巫步骤：选择解药 / 毒药 / 不使用。选择毒药后进入目标点选。SPEC §9 */
+function chooseWitchAction(choice) {
+  witchChoice = choice;
+  witchPoisonTarget = null;
+  render();
+}
+
+/** 跳过当前夜晚步骤，不落库任何行动，仍写入日志留痕。SPEC §4.2 */
+function skipNightStep() {
+  const steps = activeNightSteps(state);
+  const stepId = steps[state.stepIndex];
+  if (!stepId) return;
+  const meta = STEP_META[stepId];
+  const actorSeat = stepActorSeat(stepId);
+  const entry = {
+    day: state.day, phase: state.phase, type: 'skill',
+    actor: actorSeat, targets: [], text: `${meta.name} 跳过`, result: null, ts: Date.now(),
+  };
+  resetNightStepUiState();
+  update({ stepIndex: state.stepIndex + 1, log: [...state.log, entry] });
+}
+
+/** 天亮入口：全部步骤完成后显示。死亡结算接入见 #12。SPEC §4.2 */
+function endNight() {
+  const entry = {
+    day: state.day, phase: state.phase, type: 'system',
+    actor: null, targets: [], text: '天亮了', result: null, ts: Date.now(),
+  };
+  resetNightStepUiState();
+  update({ phase: 'day', stepIndex: 0, log: [...state.log, entry] });
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 流程 —— 白天（#13 范围，暂未实现）
@@ -1550,6 +1978,11 @@ function handleAppClick(e) {
     case 'set-lover-game':     startLoverPairFromGame(Number(el.dataset.seat)); break;
     case 'unpair-lover-game':  unpairLovers(Number(el.dataset.seat)); break;
     case 'undo-bar-undo':      hideUndoBar(); undo(); break;
+    case 'toggle-skill':       toggleSkill(Number(el.dataset.seat), el.dataset.skill); break;
+    case 'confirm-night-step': confirmNightStep(); break;
+    case 'skip-night-step':    skipNightStep(); break;
+    case 'witch-choice':       chooseWitchAction(el.dataset.choice); break;
+    case 'end-night':          endNight(); break;
     default: break;
   }
 }
