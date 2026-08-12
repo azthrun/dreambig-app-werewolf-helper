@@ -30,7 +30,113 @@ import { ROLE_MAP, STEP_META } from './roles.js';
  *             warnings: Array<{type:string, seat:number, text:string}> }}
  */
 export function resolveDawn(state) {
-  throw new Error('未实现');
+  const actions = state.nightActions ?? {};
+  const swap = actions.magicianSwap;
+  const swapTarget = seat => {
+    if (!swap || seat == null) return seat;
+    const [a, b] = swap;
+    if (seat === a) return b;
+    if (seat === b) return a;
+    return seat;
+  };
+
+  // 步骤 1 · 魔术师交换指向
+  const wolfTarget = swapTarget(actions.wolfTarget ?? null);
+  const guardTarget = swapTarget(actions.guardTarget ?? null);
+  const witchAction = actions.witchAction ?? null;
+  const witchTarget = witchAction && witchAction.type !== 'skip'
+    ? swapTarget(witchAction.target ?? null)
+    : null;
+  const witchSaveTarget = witchAction?.type === 'save' ? witchTarget : null;
+  const witchPoisonTarget = witchAction?.type === 'poison' ? witchTarget : null;
+
+  const pending = new Map(); // seat -> { reason, explanation }
+  const warnings = [];
+
+  // 步骤 2–5 · 狼刀 + 守卫抵消 + 解药抵消 + 同守同救判定
+  if (wolfTarget != null) {
+    const guarded = guardTarget === wolfTarget;
+    const saved = witchSaveTarget === wolfTarget;
+
+    if (guarded && saved) {
+      const killsAnyway = !!state.rules?.doubleProtectKills;
+      warnings.push({
+        type: 'doubleProtect',
+        seat: wolfTarget,
+        text: `${wolfTarget}号 同守同救：按当前规则${killsAnyway ? '仍死亡' : '不死亡'}`,
+      });
+      if (killsAnyway) {
+        pending.set(wolfTarget, {
+          reason: '被狼杀',
+          explanation: `${wolfTarget}号 被狼杀（同守同救 · 按当前规则仍死亡）`,
+        });
+      }
+    } else if (guarded) {
+      // 撤销：被守卫守护
+    } else if (saved) {
+      // 撤销：被女巫解药
+    } else {
+      pending.set(wolfTarget, {
+        reason: '被狼杀',
+        explanation: `${wolfTarget}号 被狼杀（未被守护 · 未使用解药）`,
+      });
+    }
+  }
+
+  // 步骤 6 · 女巫毒药
+  if (witchPoisonTarget != null) {
+    pending.set(witchPoisonTarget, {
+      reason: '被毒',
+      explanation: `${witchPoisonTarget}号 被毒`,
+    });
+  }
+
+  // 步骤 7–9 · 情侣殉情 + 狼美人魅惑连锁，递归收敛（已处理座位集合去重防循环）
+  const playersBySeat = new Map(state.players.map(p => [p.seat, p]));
+  const processed = new Set();
+  const queue = [...pending.keys()];
+
+  while (queue.length > 0) {
+    const seat = queue.shift();
+    if (processed.has(seat)) continue;
+    processed.add(seat);
+
+    const player = playersBySeat.get(seat);
+    if (!player) continue;
+
+    // 步骤 7 · 情侣殉情
+    if (player.loverSeat != null) {
+      const loverSeat = player.loverSeat;
+      const lover = playersBySeat.get(loverSeat);
+      if (lover && lover.alive && !pending.has(loverSeat)) {
+        pending.set(loverSeat, {
+          reason: '殉情',
+          explanation: `${loverSeat}号 殉情（情侣 ${seat}号 死亡）`,
+        });
+        queue.push(loverSeat);
+      }
+    }
+
+    // 步骤 8 · 狼美人魅惑连锁
+    const role = ROLE_MAP[player.effectiveRoleId ?? player.roleId];
+    if (role?.id === 'wolfbeauty') {
+      for (const p of state.players) {
+        if (p.charmedBySeat === seat && p.alive && !pending.has(p.seat)) {
+          pending.set(p.seat, {
+            reason: '被魅惑',
+            explanation: `${p.seat}号 被魅惑（狼美人 ${seat}号 死亡）`,
+          });
+          queue.push(p.seat);
+        }
+      }
+    }
+  }
+
+  const deaths = [...pending.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([seat, { reason, explanation }]) => ({ seat, reason, explanation }));
+
+  return { deaths, warnings };
 }
 
 /**
