@@ -9,8 +9,9 @@
  *
  * 本票（#7）范围：状态容器（唯一写入口 / 撤销 / 版本化持久化）、
  * 屏幕路由、设置 Step 1（人数与角色牌）、主题应用。
- * Step 2–4、局内网格、夜晚/白天流程、计时器、日志、战报等留给
- * #8–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
+ * 设置 Step 2（玩家名单、姓名池、拖拽排序）与 Step 3（夜晚顺序、计时、
+ * 高级规则）为本票（#8）范围。Step 4、局内网格、夜晚/白天流程、计时器、
+ * 日志、战报等留给 #9–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
  */
 
 import {
@@ -43,6 +44,14 @@ const MAX_PLAYERS = 20;
 
 const SCREENS = ['setup1', 'setup2', 'setup3', 'setup4', 'game', 'log', 'report'];
 const THEME_LABEL = { auto: '自动', light: '浅色', dark: '深色' };
+const WITCH_SELF_SAVE_LABEL = { never: '不可', firstNightOnly: '仅首夜', always: '始终' };
+
+const DAY_TIMER_STEP = 30;
+const DAY_TIMER_MIN = 30;
+const DAY_TIMER_MAX = 900;
+const NIGHT_TIMER_STEP = 10;
+const NIGHT_TIMER_MIN = 10;
+const NIGHT_TIMER_MAX = 300;
 
 // ══════════════════════════════════════════════════════════════════
 // 状态容器
@@ -53,6 +62,12 @@ let state = null;
 
 /** 存在但尚未确认续接的存档（SPEC §11.1 —— 不静默恢复）。 */
 let pendingResume = null;
+
+/** 姓名池与上次名单（SPEC §11.2）—— 独立于 GameState 的生命周期。 */
+let namePool = { pool: [], lastRoster: [] };
+
+/** Step 3「高级规则」折叠区的展开状态 —— 纯 UI 瞬态，不入 GameState。默认收起。 */
+let advancedRulesOpen = false;
 
 /** 建立初始状态。SPEC §3.3 */
 function createInitialState() {
@@ -232,36 +247,156 @@ function renderSetup1() {
   bindLongPressGuard(host.querySelector('[data-action="clear-roles"]'), clearRoleCounts);
 }
 
-/** 设置 Step 2 —— 玩家名单。内容详见 #8，此处仅提供可达占位屏。 */
+/** 设置 Step 2 —— 玩家名单：座位 + 拖拽把手 + 姓名，姓名池，沿用上次名单。SPEC §4.1 / §11.2 */
 function renderSetup2() {
   const host = document.getElementById('screen-setup2');
   if (!host) return;
+  ensurePlayersSynced();
+
+  const rosterHtml = state.players.map(p => `
+    <div class="reorder-item name-row" data-seat="${p.seat}">
+      <button type="button" class="drag-handle" aria-label="拖拽调整座位${p.seat}的姓名分配">⠿</button>
+      <span class="player-card-seat">${p.seat}号</span>
+      <input type="text" class="input" data-action="edit-name" data-seat="${p.seat}"
+             value="${escapeAttr(p.name)}" placeholder="座位${p.seat}" maxlength="12" autocomplete="off">
+      <div class="name-pool-chips" hidden>
+        ${namePool.pool.length
+          ? namePool.pool.map(n => `<button type="button" class="chip" data-action="fill-name" data-seat="${p.seat}" data-name="${escapeAttr(n)}">${escapeText(n)}</button>`).join('')
+          : '<span class="note">暂无历史姓名</span>'}
+      </div>
+    </div>
+  `).join('');
+
+  const lastRosterHtml = namePool.lastRoster.length ? `
+    <button type="button" class="btn btn-secondary" data-action="apply-last-roster">沿用上次名单</button>
+  ` : '';
+
   host.innerHTML = `
-    <div class="wrap">
-      <h1>玩家名单</h1>
-      <p class="note">名单、拖拽排序与姓名池见票 #8。</p>
-      <div class="actions">
-        <button type="button" class="btn btn-secondary" data-action="goto-setup1">‹ 上一步</button>
-        <button type="button" class="btn btn-primary" data-action="goto-setup3">下一步 ›</button>
+    <div class="setup-screen">
+      <header class="setup-header"><h1>玩家名单</h1></header>
+
+      <div class="preset-row">
+        ${lastRosterHtml}
+        <button type="button" class="btn btn-secondary btn-longpress" data-action="clear-names" data-longpress="true">
+          <span>清空已存姓名</span>
+        </button>
+      </div>
+
+      <div class="reorder-list" id="name-reorder-list">${rosterHtml}</div>
+
+      <div class="setup-footer">
+        <div class="actions">
+          <button type="button" class="btn btn-secondary" data-action="goto-setup1">‹ 上一步</button>
+          <button type="button" class="btn btn-primary" data-action="goto-setup3">下一步 ›</button>
+        </div>
       </div>
     </div>
   `;
+
+  bindLongPressGuard(host.querySelector('[data-action="clear-names"]'), clearStoredNames);
+  bindDragReorder(document.getElementById('name-reorder-list'), reorderPlayerNames);
 }
 
-/** 设置 Step 3 —— 夜晚顺序、计时、高级规则。内容详见 #8。 */
+/** 设置 Step 3 —— 夜晚顺序（复用拖拽组件）、计时默认值、高级规则折叠区。SPEC §4.1 / §7 */
 function renderSetup3() {
   const host = document.getElementById('screen-setup3');
   if (!host) return;
+
+  const activeSteps = activeNightStepsForSetup(state);
+  const stepsHtml = activeSteps.length ? activeSteps.map(id => `
+    <div class="reorder-item" data-step="${id}">
+      <button type="button" class="drag-handle" aria-label="拖拽调整${STEP_META[id].name}顺序">⠿</button>
+      <span class="reorder-item-label">${STEP_META[id].name}</span>
+    </div>
+  `).join('') : '<p class="note">当前局型没有夜晚行动步骤</p>';
+
+  const rules = state.rules;
+  const settings = state.settings;
+
   host.innerHTML = `
-    <div class="wrap">
-      <h1>夜晚顺序与计时</h1>
-      <p class="note">顺序拖拽、计时默认值与高级规则见票 #8。</p>
-      <div class="actions">
-        <button type="button" class="btn btn-secondary" data-action="goto-setup2">‹ 上一步</button>
-        <button type="button" class="btn btn-primary" data-action="goto-setup4">下一步 ›</button>
+    <div class="setup-screen">
+      <header class="setup-header"><h1>夜晚顺序与计时</h1></header>
+
+      <div class="field-row">
+        <span class="field-label">夜晚顺序</span>
+        <button type="button" class="btn btn-secondary btn-sm" data-action="reset-night-order">恢复默认顺序</button>
+      </div>
+      <div class="reorder-list" id="night-order-list">${stepsHtml}</div>
+
+      <div class="field-row">
+        <span class="field-label">白天讨论默认时长</span>
+        <div class="stepper">
+          <button type="button" class="btn btn-icon" data-action="day-timer-dec" aria-label="减少白天讨论时长">−</button>
+          <span class="stepper-value">${settings.dayTimerDefault}s</span>
+          <button type="button" class="btn btn-icon" data-action="day-timer-inc" aria-label="增加白天讨论时长">+</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <span class="field-label">夜晚行动默认时长</span>
+        <div class="stepper">
+          <button type="button" class="btn btn-icon" data-action="night-timer-dec" aria-label="减少夜晚行动时长">−</button>
+          <span class="stepper-value">${settings.nightTimerDefault}s</span>
+          <button type="button" class="btn btn-icon" data-action="night-timer-inc" aria-label="增加夜晚行动时长">+</button>
+        </div>
+      </div>
+
+      <details class="advanced-rules" id="advanced-rules"${advancedRulesOpen ? ' open' : ''}>
+        <summary>高级规则</summary>
+
+        <div class="toggle-row">
+          <span class="toggle-row-label">同守同救结果 → 死亡</span>
+          <label class="switch"><input type="checkbox" data-action="toggle-rule" data-rule="doubleProtectKills" ${rules.doubleProtectKills ? 'checked' : ''}></label>
+        </div>
+
+        <div class="toggle-row">
+          <span class="toggle-row-label">女巫自救</span>
+          <div class="segmented" role="group" aria-label="女巫自救">
+            ${['never', 'firstNightOnly', 'always'].map(v => `
+              <button type="button" class="btn btn-ghost btn-sm${rules.witchSelfSave === v ? ' is-active' : ''}"
+                      data-action="set-witch-self-save" data-value="${v}">${WITCH_SELF_SAVE_LABEL[v]}</button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="toggle-row">
+          <span class="toggle-row-label">允许守卫连守</span>
+          <label class="switch"><input type="checkbox" data-action="toggle-rule" data-rule="guardRepeatAllowed" ${rules.guardRepeatAllowed ? 'checked' : ''}></label>
+        </div>
+
+        <div class="toggle-row">
+          <span class="toggle-row-label">非常规死亡抑制开枪</span>
+          <label class="switch"><input type="checkbox" data-action="toggle-rule" data-rule="abnormalDeathBlocksShot" ${rules.abnormalDeathBlocksShot ? 'checked' : ''}></label>
+        </div>
+
+        <div class="toggle-row">
+          <span class="toggle-row-label">女巫同夜可双药</span>
+          <label class="switch"><input type="checkbox" data-action="toggle-rule" data-rule="witchBothPotions" ${rules.witchBothPotions ? 'checked' : ''}></label>
+        </div>
+
+        <div class="toggle-row">
+          <span class="toggle-row-label">每日随机首发言</span>
+          <label class="switch"><input type="checkbox" data-action="toggle-setting" data-setting="randomFirstSpeaker" ${settings.randomFirstSpeaker ? 'checked' : ''}></label>
+        </div>
+
+        <div class="toggle-row">
+          <span class="toggle-row-label">提示音</span>
+          <label class="switch"><input type="checkbox" data-action="toggle-setting" data-setting="soundEnabled" ${settings.soundEnabled ? 'checked' : ''}></label>
+        </div>
+      </details>
+
+      <div class="setup-footer">
+        <div class="actions">
+          <button type="button" class="btn btn-secondary" data-action="goto-setup2">‹ 上一步</button>
+          <button type="button" class="btn btn-primary" data-action="goto-setup4">下一步 ›</button>
+        </div>
       </div>
     </div>
   `;
+
+  bindDragReorder(document.getElementById('night-order-list'), reorderNightSteps);
+  host.querySelector('#advanced-rules').addEventListener('toggle', (e) => {
+    advancedRulesOpen = e.target.open;
+  });
 }
 
 /** 设置 Step 4 —— 分配身份。内容详见 #9。 */
@@ -385,6 +520,136 @@ function gotoScreen(screen) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// 设置 Step 2 —— 玩家名单
+// ══════════════════════════════════════════════════════════════════
+
+/** 建立一个空 Player。SPEC §3.2 */
+function createPlayer(seat) {
+  return {
+    seat, name: '', roleId: null, effectiveRoleId: null, alive: true,
+    deathReason: null, deathDay: null, deathPhase: null,
+    loverSeat: null, charmedBySeat: null, isSheriff: false,
+    skills: {}, flags: { idiotRevealed: false, foxDisabled: false },
+  };
+}
+
+/** 使 state.players 与 state.playerCount 同步，保留已存在座位的数据。 */
+function ensurePlayersSynced() {
+  const count = state.playerCount;
+  if (state.players.length === count && state.players.every((p, i) => p.seat === i + 1)) return;
+  const players = [];
+  for (let i = 0; i < count; i++) {
+    const seat = i + 1;
+    const existing = state.players.find(p => p.seat === seat);
+    players.push(existing ?? createPlayer(seat));
+  }
+  state = { ...state, players };
+  saveGame(state);
+}
+
+/** 输入框逐字符更新：不入历史栈、不整屏重渲染，避免打字时丢失焦点/光标。 */
+function setPlayerNameSilently(seat, name) {
+  const players = state.players.map(p => (p.seat === seat ? { ...p, name } : p));
+  state = { ...state, players };
+  saveGame(state);
+}
+
+/** 姓名池芯片点击填入：直接写值 + 收起芯片面板，不整屏重渲染。 */
+function fillNameFromChip(seatStr, name) {
+  const seat = Number(seatStr);
+  setPlayerNameSilently(seat, name);
+  const row = document.querySelector(`.name-row[data-seat="${seat}"]`);
+  const input = row?.querySelector('[data-action="edit-name"]');
+  if (input) input.value = name;
+  row?.querySelector('.name-pool-chips')?.setAttribute('hidden', '');
+}
+
+/** 拖拽重排姓名在固定座位间的分配 —— 座位号本身不变。SPEC §4.1 */
+function reorderPlayerNames(from, to) {
+  if (from === to) return;
+  const names = state.players.map(p => p.name);
+  const moved = [...names];
+  const [item] = moved.splice(from, 1);
+  moved.splice(to, 0, item);
+  const players = state.players.map((p, i) => ({ ...p, name: moved[i] }));
+  update({ players });
+}
+
+/** 沿用上次名单 —— 一键回填。SPEC §11.2 */
+function applyLastRoster() {
+  const map = new Map(namePool.lastRoster.map(r => [r.seat, r.name]));
+  const players = state.players.map(p => ({ ...p, name: map.has(p.seat) ? map.get(p.seat) : p.name }));
+  update({ players });
+}
+
+/** 清空姓名池与上次名单（不影响进行中的对局）。经长按 600ms 确认。SPEC §8.2 / §11.2 */
+function clearStoredNames() {
+  clearNames();
+  namePool = loadNames();
+  render();
+}
+
+/** 开始游戏时把本局姓名并入姓名池并记录为上次名单。SPEC §11.2 */
+function commitNamesToPool() {
+  const roster = state.players.map(p => ({ seat: p.seat, name: p.name || '' }));
+  rememberNames(roster);
+  namePool = loadNames();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 设置 Step 3 —— 夜晚顺序、计时默认值、高级规则
+// ══════════════════════════════════════════════════════════════════
+
+/**
+ * 当前局型（roleCounts）中实际存在的夜晚步骤，依 nightOrder 排序。
+ * 与 engine.js 的 activeNightSteps 不同：后者依据已分配的玩家身份判定，
+ * 用于局内运行时；此处身份尚未分配（Step 4 在其之后），改依角色牌数量判定。
+ */
+function activeNightStepsForSetup(s) {
+  const roleIds = Object.entries(s.roleCounts).filter(([, c]) => c > 0).map(([id]) => id);
+  const stepIds = new Set();
+  for (const roleId of roleIds) {
+    const role = ROLE_MAP[roleId];
+    if (role?.nightStep) stepIds.add(role.nightStep);
+  }
+  return s.nightOrder.filter(id => stepIds.has(id));
+}
+
+/** 拖拽重排夜晚顺序：仅重排当前可见的活跃步骤，映射回完整 nightOrder。 */
+function reorderNightSteps(from, to) {
+  if (from === to) return;
+  const active = activeNightStepsForSetup(state);
+  const moved = [...active];
+  const [item] = moved.splice(from, 1);
+  moved.splice(to, 0, item);
+  let idx = 0;
+  const nightOrder = state.nightOrder.map(id => (active.includes(id) ? moved[idx++] : id));
+  update({ nightOrder });
+}
+
+function resetNightOrder() {
+  update({ nightOrder: [...DEFAULT_NIGHT_ORDER] });
+}
+
+function adjustDayTimer(delta) {
+  const next = Math.max(DAY_TIMER_MIN, Math.min(DAY_TIMER_MAX, state.settings.dayTimerDefault + delta));
+  update({ settings: { ...state.settings, dayTimerDefault: next } });
+}
+
+function adjustNightTimer(delta) {
+  const next = Math.max(NIGHT_TIMER_MIN, Math.min(NIGHT_TIMER_MAX, state.settings.nightTimerDefault + delta));
+  update({ settings: { ...state.settings, nightTimerDefault: next } });
+}
+
+function setRule(key, value) {
+  update({ rules: { ...state.rules, [key]: value } });
+}
+
+function setSetting(key, value) {
+  update({ settings: { ...state.settings, [key]: value } });
+}
+
+// ══════════════════════════════════════════════════════════════════
 // 流程 —— 夜晚（#10–#13 范围，暂未实现）
 // ══════════════════════════════════════════════════════════════════
 
@@ -473,11 +738,122 @@ function showUndoBar(text) { throw new Error('未实现'); }
 
 /**
  * 把手拖拽排序，基于 Pointer Events（HTML5 DnD 在触摸设备不可用）。
- * 供 Step 2 姓名排序与 Step 3 夜晚顺序共用。SPEC §4.1（#8 范围，暂未实现）
- * @param {HTMLElement} container
+ * 仅可从 `.drag-handle` 起拖；拖动时被拖项抬起（position: fixed + 阴影），
+ * 原位置由 `.drop-gap` 占位（高度动画），靠近视口上下边缘时自动滚动。
+ * 供 Step 2 姓名排序与 Step 3 夜晚顺序共用。SPEC §4.1
+ * @param {HTMLElement} container 直接子元素均为 `.reorder-item`
  * @param {(from:number, to:number) => void} onReorder
  */
-function bindDragReorder(container, onReorder) { throw new Error('未实现'); }
+function bindDragReorder(container, onReorder) {
+  if (!container) return;
+
+  let dragEl = null;
+  let gapEl = null;
+  let fromIndex = -1;
+  let startClientY = 0;
+  let startTop = 0;
+  let pointerId = null;
+  let autoScrollRaf = null;
+  let lastClientY = 0;
+
+  function itemsExcludingDrag() {
+    return Array.from(container.querySelectorAll(':scope > .reorder-item')).filter(el => el !== dragEl);
+  }
+
+  function runAutoScroll() {
+    const margin = 56;
+    const vh = window.innerHeight;
+    let delta = 0;
+    if (lastClientY < margin) delta = -(margin - lastClientY) * 0.4;
+    else if (lastClientY > vh - margin) delta = (lastClientY - (vh - margin)) * 0.4;
+    if (delta !== 0) window.scrollBy(0, delta);
+    autoScrollRaf = requestAnimationFrame(runAutoScroll);
+  }
+
+  function updateGapPosition(clientY) {
+    const siblings = itemsExcludingDrag();
+    let target = null;
+    for (const sib of siblings) {
+      const r = sib.getBoundingClientRect();
+      if (clientY < r.top + r.height / 2) { target = sib; break; }
+    }
+    if (target) {
+      if (target.previousElementSibling !== gapEl) container.insertBefore(gapEl, target);
+    } else if (container.lastElementChild !== gapEl) {
+      container.appendChild(gapEl);
+    }
+  }
+
+  function onPointerMove(e) {
+    if (!dragEl) return;
+    lastClientY = e.clientY;
+    const dy = e.clientY - startClientY;
+    dragEl.style.top = `${startTop + dy}px`;
+    updateGapPosition(e.clientY);
+  }
+
+  function cleanup() {
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    window.removeEventListener('pointercancel', onPointerUp);
+    if (autoScrollRaf) { cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null; }
+    if (dragEl) {
+      dragEl.classList.remove('dragging');
+      dragEl.style.position = '';
+      dragEl.style.left = '';
+      dragEl.style.top = '';
+      dragEl.style.width = '';
+      dragEl.style.zIndex = '';
+    }
+    if (gapEl) gapEl.remove();
+  }
+
+  function onPointerUp() {
+    if (!dragEl) return;
+    const remaining = Array.from(container.children).filter(el => el !== dragEl);
+    const to = remaining.indexOf(gapEl);
+    const from = fromIndex;
+    cleanup();
+    dragEl = null; gapEl = null; fromIndex = -1;
+    if (to >= 0 && to !== from) onReorder(from, to);
+  }
+
+  container.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.drag-handle');
+    if (!handle || !container.contains(handle)) return;
+    const item = handle.closest('.reorder-item');
+    if (!item || item.parentElement !== container) return;
+
+    e.preventDefault();
+    pointerId = e.pointerId;
+    dragEl = item;
+    fromIndex = Array.from(container.querySelectorAll(':scope > .reorder-item')).indexOf(item);
+
+    const rect = item.getBoundingClientRect();
+    startClientY = e.clientY;
+    lastClientY = e.clientY;
+    startTop = rect.top;
+
+    gapEl = document.createElement('div');
+    gapEl.className = 'drop-gap is-active';
+    gapEl.style.height = `${rect.height}px`;
+
+    item.classList.add('dragging');
+    item.style.position = 'fixed';
+    item.style.left = `${rect.left}px`;
+    item.style.top = `${rect.top}px`;
+    item.style.width = `${rect.width}px`;
+    item.style.zIndex = '10';
+
+    item.after(gapEl);
+
+    try { handle.setPointerCapture(pointerId); } catch { /* 部分环境不支持，忽略 */ }
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+    autoScrollRaf = requestAnimationFrame(runAutoScroll);
+  });
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 事件委托
@@ -504,11 +880,58 @@ function handleAppClick(e) {
     case 'goto-setup2':      gotoScreen('setup2'); break;
     case 'goto-setup3':      gotoScreen('setup3'); break;
     case 'goto-setup4':      gotoScreen('setup4'); break;
-    case 'goto-game':        gotoScreen('game'); break;
+    case 'goto-game':        commitNamesToPool(); gotoScreen('game'); break;
     case 'goto-log':         gotoScreen('log'); break;
     case 'undo':              undo(); break;
+    case 'apply-last-roster':   applyLastRoster(); break;
+    case 'fill-name':           fillNameFromChip(el.dataset.seat, el.dataset.name); break;
+    case 'reset-night-order':   resetNightOrder(); break;
+    case 'day-timer-dec':       adjustDayTimer(-DAY_TIMER_STEP); break;
+    case 'day-timer-inc':       adjustDayTimer(DAY_TIMER_STEP); break;
+    case 'night-timer-dec':     adjustNightTimer(-NIGHT_TIMER_STEP); break;
+    case 'night-timer-inc':     adjustNightTimer(NIGHT_TIMER_STEP); break;
+    case 'toggle-rule':         setRule(el.dataset.rule, el.checked); break;
+    case 'set-witch-self-save': setRule('witchSelfSave', el.dataset.value); break;
+    case 'toggle-setting':      setSetting(el.dataset.setting, el.checked); break;
     default: break;
   }
+}
+
+/** 姓名输入框逐字符更新：直接写状态，不触发整屏重渲染（保留焦点/光标）。 */
+function handleAppInput(e) {
+  const el = e.target.closest?.('[data-action="edit-name"]');
+  if (!el) return;
+  setPlayerNameSilently(Number(el.dataset.seat), el.value);
+}
+
+/** 姓名输入框聚焦时展开姓名池芯片（同一时刻仅展开一个）。SPEC §4.1 */
+function handleNameFocusIn(e) {
+  const input = e.target.closest?.('[data-action="edit-name"]');
+  if (!input) return;
+  document.querySelectorAll('.name-pool-chips').forEach(el => el.setAttribute('hidden', ''));
+  input.closest('.name-row')?.querySelector('.name-pool-chips')?.removeAttribute('hidden');
+}
+
+/** 失焦收起芯片面板；延迟以放行芯片点击（否则点击前先失焦会导致面板消失）。 */
+function handleNameFocusOut(e) {
+  const input = e.target.closest?.('[data-action="edit-name"]');
+  if (!input) return;
+  const row = input.closest('.name-row');
+  setTimeout(() => {
+    if (row && !row.contains(document.activeElement)) {
+      row.querySelector('.name-pool-chips')?.setAttribute('hidden', '');
+    }
+  }, 150);
+}
+
+/** 转义 HTML 属性值（姓名可能含 `"` `&` `<`）。 */
+function escapeAttr(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+/** 转义 HTML 文本内容。 */
+function escapeText(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -561,8 +984,14 @@ function boot() {
     state = createInitialState();
   }
 
+  namePool = loadNames();
+
   applyTheme(state.settings.theme);
-  document.getElementById('app').addEventListener('click', handleAppClick);
+  const app = document.getElementById('app');
+  app.addEventListener('click', handleAppClick);
+  app.addEventListener('input', handleAppInput);
+  app.addEventListener('focusin', handleNameFocusIn);
+  app.addEventListener('focusout', handleNameFocusOut);
   render();
 }
 
