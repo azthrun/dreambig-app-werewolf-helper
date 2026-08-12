@@ -9,7 +9,7 @@
  * ⚠️ 部分函数尚未实现 —— 结算相关函数仍为签名骨架。
  */
 
-import { ROLE_MAP, STEP_META, CAMP } from './roles.js';
+import { ROLE_MAP, STEP_META, CAMP, ABNORMAL_DEATH_REASONS } from './roles.js';
 
 /**
  * 天亮结算。SPEC §5.1
@@ -92,6 +92,24 @@ export function resolveDawn(state) {
   }
 
   // 步骤 7–9 · 情侣殉情 + 狼美人魅惑连锁，递归收敛（已处理座位集合去重防循环）
+  cascadeLoverAndCharm(state, pending);
+
+  const deaths = [...pending.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([seat, { reason, explanation }]) => ({ seat, reason, explanation }));
+
+  return { deaths, warnings };
+}
+
+/**
+ * 情侣殉情 + 狼美人魅惑连锁的收敛逻辑（SPEC §5.1 步骤 7–9）。
+ * 由 resolveDawn 与 cascadeDeaths 共用，避免连锁规则散落两处。
+ * 就地扩充 `pending`（seat -> {reason, explanation}），已处理座位集合去重防循环。
+ *
+ * @param {GameState} state
+ * @param {Map<number, {reason:string, explanation:string}>} pending
+ */
+function cascadeLoverAndCharm(state, pending) {
   const playersBySeat = new Map(state.players.map(p => [p.seat, p]));
   const processed = new Set();
   const queue = [...pending.keys()];
@@ -131,12 +149,6 @@ export function resolveDawn(state) {
       }
     }
   }
-
-  const deaths = [...pending.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([seat, { reason, explanation }]) => ({ seat, reason, explanation }));
-
-  return { deaths, warnings };
 }
 
 /**
@@ -150,13 +162,51 @@ export function resolveDawn(state) {
  *   · charmLink（狼美人）—— 已于 resolveDawn 步骤 8 处理，不入队
  *
  * 白狼王自爆、骑士决斗、普通狼人自爆为白天主动行为，不属死亡触发。
+ * 身份未知（roleId 与 effectiveRoleId 均为 null）的死者不产生任何触发。
+ * 技能已消耗（skills.shot === false）的角色不再入队。
  *
  * @param {GameState} state
  * @param {Array<{seat:number, reason:string}>} deaths
  * @returns {Array<{seat:number, type:string, label:string}>}
  */
 export function buildTriggerQueue(state, deaths) {
-  throw new Error('未实现');
+  const queue = [];
+
+  for (const death of deaths) {
+    const player = state.players.find(p => p.seat === death.seat);
+    if (!player) continue;
+
+    const roleId = player.effectiveRoleId ?? player.roleId;
+    if (!roleId) continue; // 身份未知，优雅降级：不产生触发
+
+    const role = ROLE_MAP[roleId];
+    if (!role?.deathTrigger) continue;
+
+    if (role.deathTrigger === 'shot') {
+      if (player.skills?.shot === false) continue; // 技能已消耗
+
+      const abnormal = ABNORMAL_DEATH_REASONS.includes(death.reason);
+      if (abnormal && state.rules?.abnormalDeathBlocksShot) continue;
+
+      queue.push({
+        seat: death.seat,
+        type: 'shot',
+        label: `${death.seat}号（${role.name}）可开枪`,
+      });
+    } else if (role.deathTrigger === 'idiotReveal') {
+      if (death.reason !== '被投票') continue;
+      if (player.flags?.idiotRevealed) continue;
+
+      queue.push({
+        seat: death.seat,
+        type: 'idiotReveal',
+        label: `${death.seat}号（${role.name}）可翻牌免死`,
+      });
+    }
+    // charmLink（狼美人）已于 resolveDawn 步骤 8 处理，不重复入队
+  }
+
+  return queue;
 }
 
 /**
@@ -168,7 +218,18 @@ export function buildTriggerQueue(state, deaths) {
  * @returns {{ deaths: Array, warnings: Array }}
  */
 export function cascadeDeaths(state, newDeaths) {
-  throw new Error('未实现');
+  const pending = new Map();
+  for (const { seat, reason } of newDeaths) {
+    pending.set(seat, { reason, explanation: `${seat}号 ${reason}` });
+  }
+
+  cascadeLoverAndCharm(state, pending);
+
+  const deaths = [...pending.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([seat, { reason, explanation }]) => ({ seat, reason, explanation }));
+
+  return { deaths, warnings: [] };
 }
 
 /**

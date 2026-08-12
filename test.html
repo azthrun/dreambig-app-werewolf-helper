@@ -307,7 +307,16 @@ test('3. 同守同救 → 依开关判定（默认死亡）且触发警告', () 
 });
 
 test('4. 女巫毒杀猎人 → 猎人不入开枪队列（默认开关）', () => {
-  throw new Error('PENDING');
+  const state = makeState({
+    playerCount: 9,
+    roles: { 1: 'seer', 2: 'witch', 3: 'hunter' },
+    nightActions: { witchAction: { type: 'poison', target: 3 } },
+  });
+  const { deaths } = resolveDawn(state);
+  assertDeaths(deaths, [{ seat: 3, reason: '被毒' }]);
+
+  const queue = buildTriggerQueue(state, deaths);
+  assert(queue.length === 0, `期望空队列，实际 ${queue.length} 条`);
 });
 
 test('5. 情侣连锁：狼刀情侣 A → B 殉情', () => {
@@ -325,11 +334,52 @@ test('5. 情侣连锁：狼刀情侣 A → B 殉情', () => {
 });
 
 test('6. 情侣+猎人连锁：猎人被投→开枪击中情侣A→B殉情→B为狼王→狼王入队', () => {
-  throw new Error('PENDING');
+  const state = makeState({
+    playerCount: 9,
+    roles: { 3: 'hunter', 4: 'villager', 5: 'wolfking' },
+    lovers: [[4, 5]],
+  });
+
+  // 猎人被投票放逐 → 死因感知资格判定：被投票不抑制开枪，入队
+  const shotQueue = buildTriggerQueue(state, [{ seat: 3, reason: '被投票' }]);
+  assert(shotQueue.length === 1 && shotQueue[0].seat === 3 && shotQueue[0].type === 'shot',
+    `期望猎人（3号）入开枪队列，实际 [${shotQueue.map(t => `${t.seat}:${t.type}`)}]`);
+
+  // 猎人开枪击中情侣 A（4号）→ 回流殉情连锁，B（5号）殉情
+  const { deaths: cascaded } = cascadeDeaths(state, [{ seat: 4, reason: '被枪' }]);
+  assertDeaths(cascaded, [
+    { seat: 4, reason: '被枪' },
+    { seat: 5, reason: '殉情' },
+  ]);
+
+  // B 为狼王，殉情属非常规死亡：默认开关下抑制开枪，不入队
+  const suppressedQueue = buildTriggerQueue(state, cascaded.filter(d => d.seat === 5));
+  assert(suppressedQueue.length === 0,
+    `默认规则下狼王殉情应被抑制，实际 [${suppressedQueue.map(t => `${t.seat}:${t.type}`)}]`);
+
+  // 关闭「非常规死亡抑制开枪」开关后，狼王殉情死亡仍可入队，链条逐条呈现
+  const openState = { ...state, rules: { ...state.rules, abnormalDeathBlocksShot: false } };
+  const wolfkingQueue = buildTriggerQueue(openState, cascaded.filter(d => d.seat === 5));
+  assert(wolfkingQueue.length === 1 && wolfkingQueue[0].seat === 5 && wolfkingQueue[0].type === 'shot',
+    `关闭抑制开关后期望狼王（5号）入队，实际 [${wolfkingQueue.map(t => `${t.seat}:${t.type}`)}]`);
 });
 
 test('7. 狼美人死亡 → 被魅惑者殉情', () => {
-  throw new Error('PENDING');
+  const state = makeState({
+    playerCount: 9,
+    roles: { 1: 'seer', 2: 'wolfbeauty', 3: 'villager' },
+    charmed: { 3: 2 },
+    nightActions: { wolfTarget: 2 },
+  });
+  const { deaths } = resolveDawn(state);
+  assertDeaths(deaths, [
+    { seat: 2, reason: '被狼杀' },
+    { seat: 3, reason: '被魅惑' },
+  ]);
+
+  // 魅惑连锁已在结算阶段（resolveDawn 步骤 8）处理，不应重复入队
+  const queue = buildTriggerQueue(state, deaths);
+  assert(queue.length === 0, `狼美人魅惑连锁不应重复入队，实际 ${queue.length} 条`);
 });
 
 test('8. 魔术师交换 → 狼刀指向被重定向', () => {
