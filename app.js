@@ -10,9 +10,10 @@
  * 状态容器（唯一写入口 / 撤销 / 版本化持久化）、屏幕路由、设置向导
  * 全部四步（人数与角色牌 #7、玩家名单与姓名池 #8、夜晚顺序与计时 #8、
  * 分配身份与开局 #9）、局内玩家网格与死亡标记（#10）、夜晚流程引导 / 技能
- * 追踪 / 信息展示（#11）、天亮结算 / 死亡触发队列 / 警报通道（#12）与主题
- * 应用已实现。计时器、日志、战报、随机首发言与其余白天主动行为等留给
- * #13–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
+ * 追踪 / 信息展示（#11）、天亮结算 / 死亡触发队列 / 警报通道（#12）、
+ * 白天流程与主动行为：放逐、骑士决斗、白狼王自爆带人、普通狼人自爆、
+ * 情侣手动配对、进入下一夜（#13）与主题应用已实现。计时器、日志、战报、
+ * 随机首发言等留给 #14–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
  */
 
 import {
@@ -92,6 +93,11 @@ let identitySelectedSeat = null;   // 当前待分配身份的座位
 let loverPairMode = false;         // 「设为情侣」模式是否开启（Step 4 与局内共用）
 let loverPairFirstSeat = null;     // 情侣配对已选中的第一个座位
 
+// ── 白天主动行为 —— 骑士决斗 / 白狼王自爆带人 / 狼人自爆，纯 UI 瞬态，不入 GameState/撤销栈。SPEC §4.3 / §5.4 ──
+let dayActionMode = null;          // null | 'duelTarget' | 'duelConfirm' | 'wwkTarget' | 'wolfSelfDestructPick'
+let dayActionSeat = null;          // 发起行为的座位（骑士 / 白狼王）
+let dayActionTarget = null;        // 已选中的对手 / 目标座位
+
 // ── 局内玩家网格 —— 纯 UI 展开状态，不入 GameState/撤销栈。SPEC §12 / §8.3 ──
 let gameExpandedSeat = null;       // 当前展开信息面板的座位（存活或阵亡）
 let gameDeathPickerSeat = null;    // 当前展示死因芯片的座位（长按触发）
@@ -129,6 +135,7 @@ function createInitialState() {
     lastGuardTarget: null,
     pendingDeaths: [],
     triggerQueue: [],
+    pendingNightAdvance: false,  // 狼人自爆等「白天立即结束」行为：触发队列处理完毕后自动进入下一夜
     timer: {
       mode: 'free',
       endsAt: null,
@@ -216,6 +223,7 @@ function normalizeLoadedState(saved) {
     daySubPhase: saved.daySubPhase ?? null,
     pendingDeaths: saved.pendingDeaths ?? [],
     triggerQueue: saved.triggerQueue ?? [],
+    pendingNightAdvance: saved.pendingNightAdvance ?? false,
   };
 }
 
@@ -642,6 +650,10 @@ function renderPhasePanel() {
   }
 
   if (state.phase === 'day') {
+    if (dayActionMode) {
+      panel.innerHTML = renderDayActionBanner();
+      return;
+    }
     if (state.daySubPhase === 'deathReview') {
       panel.innerHTML = renderDeathReviewPanel();
       return;
@@ -650,7 +662,7 @@ function renderPhasePanel() {
       panel.innerHTML = renderTriggerPanel();
       return;
     }
-    panel.innerHTML = `<p class="note">死亡与触发队列已处理。随机首发言、发言计时与白天主动行为见票 #13。</p>`;
+    panel.innerHTML = renderDayMainPanel();
     return;
   }
 
@@ -724,6 +736,98 @@ function renderTriggerPanel() {
         <div class="phase-step-actions">
           <button type="button" class="btn btn-primary" data-action="resolve-idiot-reveal">翻牌免死</button>
           <button type="button" class="btn btn-secondary" data-action="skip-trigger">跳过</button>
+        </div>
+      </div>
+    `;
+  }
+
+  return '';
+}
+
+/**
+ * 白天主动行为入口 + 「进入下一夜」。SPEC §4.3 步骤 5 / §5.4
+ * 骑士决斗 / 白狼王自爆带人 / 狼人自爆按钮仅在存在合资格存活行动者时显示。
+ */
+function renderDayMainPanel() {
+  const knight = eligibleDayActionPlayers('duel')[0];
+  const whiteWolfKing = eligibleDayActionPlayers('selfDestructWithTarget')[0];
+  const selfDestructWolves = eligibleDayActionPlayers('selfDestruct');
+
+  const actionButtons = [
+    knight ? `<button type="button" class="btn btn-secondary btn-block" data-action="start-duel">骑士决斗</button>` : '',
+    whiteWolfKing ? `<button type="button" class="btn btn-secondary btn-block" data-action="start-wwk">白狼王自爆带人</button>` : '',
+    selfDestructWolves.length ? `<button type="button" class="btn btn-secondary btn-block" data-action="start-wolf-selfdestruct">狼人自爆</button>` : '',
+  ].filter(Boolean).join('');
+
+  return `
+    <div class="phase-step">
+      <div class="phase-step-header">
+        <h2 class="phase-step-title">白天</h2>
+        <p class="phase-step-instruction">死亡与触发已处理。长按玩家卡片可标记放逐；随时可发起白天主动行为</p>
+      </div>
+      <div class="day-action-list">${actionButtons}</div>
+      <div class="phase-step-actions">
+        <button type="button" class="btn btn-primary btn-block" data-action="end-day">进入下一夜</button>
+      </div>
+    </div>
+  `;
+}
+
+/** 存活且具备指定 dayAction 资格（含一次性技能未耗尽）的玩家。SPEC §5.4 / §6 */
+function eligibleDayActionPlayers(dayAction) {
+  return state.players.filter(p => {
+    if (!p.alive) return false;
+    const role = ROLE_MAP[p.effectiveRoleId ?? p.roleId];
+    if (!role || role.dayAction !== dayAction) return false;
+    if (dayAction === 'duel' && p.skills?.duel === false) return false;
+    if (dayAction === 'selfDestructWithTarget' && p.skills?.selfDestruct === false) return false;
+    return true;
+  });
+}
+
+/** 白天主动行为进行中的内联横幅：骑士决斗 / 白狼王自爆带人 / 狼人自爆的分步引导。SPEC §4.3 */
+function renderDayActionBanner() {
+  if (dayActionMode === 'duelTarget') {
+    return `
+      <div class="banner-inline" role="status">
+        <span>骑士 ${dayActionSeat}号 决斗 · 点选下方玩家网格中的对手</span>
+        <div class="banner-actions">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-day-action">取消</button>
+        </div>
+      </div>
+    `;
+  }
+
+  if (dayActionMode === 'duelConfirm') {
+    return `
+      <div class="banner-inline" role="status">
+        <span>骑士 ${dayActionSeat}号 与 ${dayActionTarget}号 决斗 · 法官裁定胜负</span>
+        <div class="banner-actions">
+          <button type="button" class="btn btn-secondary btn-sm" data-action="resolve-duel" data-result="knightWins">骑士获胜</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-action="resolve-duel" data-result="knightLoses">骑士落败</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-day-action">取消</button>
+        </div>
+      </div>
+    `;
+  }
+
+  if (dayActionMode === 'wwkTarget') {
+    return `
+      <div class="banner-inline" role="status">
+        <span>白狼王 ${dayActionSeat}号 自爆带人 · 点选下方玩家网格中要带走的目标</span>
+        <div class="banner-actions">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-day-action">取消</button>
+        </div>
+      </div>
+    `;
+  }
+
+  if (dayActionMode === 'wolfSelfDestructPick') {
+    return `
+      <div class="banner-inline" role="status">
+        <span>点选下方玩家网格中要自爆的狼人</span>
+        <div class="banner-actions">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-day-action">取消</button>
         </div>
       </div>
     `;
@@ -980,10 +1084,13 @@ function renderPlayerGrid() {
   const pulsing = alertPulseSeats();
   grid.innerHTML = state.players.map(p => renderPlayerCard(p, columns, selectable, selected, pulsing)).join('');
 
-  // 长按 550ms 标记阵亡，仅绑定于折叠态的存活卡片。SPEC §8.3
-  grid.querySelectorAll('button.player-card:not(.is-dead)').forEach(el => {
-    bindDeathLongPress(el, Number(el.dataset.seat));
-  });
+  // 长按 550ms 标记阵亡，仅绑定于折叠态的存活卡片；配对 / 白天主动行为选择进行中时不绑定，
+  // 避免与点选目标手势冲突。SPEC §8.3
+  if (!loverPairMode && !dayActionMode) {
+    grid.querySelectorAll('button.player-card:not(.is-dead)').forEach(el => {
+      bindDeathLongPress(el, Number(el.dataset.seat));
+    });
+  }
 }
 
 /**
@@ -1021,6 +1128,16 @@ function activeSelectableSeats() {
   if (state.phase === 'day' && state.daySubPhase === 'triggers' && state.triggerQueue[0]?.type === 'shot') {
     const alive = new Set(state.players.filter(p => p.alive).map(p => p.seat));
     return { selectable: alive, selected: new Set() };
+  }
+
+  if (state.phase === 'day' && (dayActionMode === 'duelTarget' || dayActionMode === 'wwkTarget')) {
+    const alive = new Set(state.players.filter(p => p.alive && p.seat !== dayActionSeat).map(p => p.seat));
+    return { selectable: alive, selected: new Set() };
+  }
+
+  if (state.phase === 'day' && dayActionMode === 'wolfSelfDestructPick') {
+    const eligible = new Set(eligibleDayActionPlayers('selfDestruct').map(p => p.seat));
+    return { selectable: eligible, selected: new Set() };
   }
 
   return empty;
@@ -1517,12 +1634,21 @@ function handleLoverSeatClick(seat) {
   pairLovers(firstSeat, seat);
 }
 
+/** 手动配对情侣。局内（非设置阶段）写入日志，SPEC §5.3 / §5.4 —— 驱动殉情走 cascadeDeaths。 */
 function pairLovers(seatA, seatB) {
   const players = state.players.map(p => {
     if (p.seat === seatA) return { ...p, loverSeat: seatB };
     if (p.seat === seatB) return { ...p, loverSeat: seatA };
     return p;
   });
+  if (state.screen === 'game') {
+    const entry = {
+      day: state.day, phase: state.phase, type: 'system', actor: null, targets: [seatA, seatB],
+      text: `${seatA}号 与 ${seatB}号 设为情侣`, result: null, ts: Date.now(),
+    };
+    update({ players, log: [...state.log, entry] });
+    return;
+  }
   update({ players });
 }
 
@@ -1532,6 +1658,14 @@ function unpairLovers(seat) {
   const otherSeat = player.loverSeat;
   const players = state.players.map(p =>
     (p.seat === seat || p.seat === otherSeat) ? { ...p, loverSeat: null } : p);
+  if (state.screen === 'game') {
+    const entry = {
+      day: state.day, phase: state.phase, type: 'system', actor: null, targets: [seat, otherSeat],
+      text: `解除 ${seat}号 与 ${otherSeat}号 的情侣关系`, result: null, ts: Date.now(),
+    };
+    update({ players, log: [...state.log, entry] });
+    return;
+  }
   update({ players });
 }
 
@@ -1568,6 +1702,9 @@ function resetGameUiState() {
   gameRoleEditSeat = null;
   loverPairMode = false;
   loverPairFirstSeat = null;
+  dayActionMode = null;
+  dayActionSeat = null;
+  dayActionTarget = null;
   resetNightStepUiState();
 }
 
@@ -1590,6 +1727,26 @@ function handleCardTap(seat) {
   }
 
   const player = state.players.find(p => p.seat === seat);
+
+  if (dayActionMode === 'duelTarget' && player?.alive && seat !== dayActionSeat) {
+    dayActionTarget = seat;
+    dayActionMode = 'duelConfirm';
+    render();
+    return;
+  }
+
+  if (dayActionMode === 'wwkTarget' && player?.alive && seat !== dayActionSeat) {
+    resolveWhiteWolfKing(dayActionSeat, seat);
+    return;
+  }
+
+  if (dayActionMode === 'wolfSelfDestructPick' && player?.alive
+      && eligibleDayActionPlayers('selfDestruct').some(p => p.seat === seat)) {
+    resolveWolfSelfDestruct(seat);
+    return;
+  }
+
+  if (dayActionMode) return;
 
   if (state.phase === 'night' && player?.alive) {
     const steps = activeNightSteps(state);
@@ -2027,8 +2184,12 @@ function addPendingDeath(seat, reason) {
  * 触发 / 白天行为产生的新死亡落库：应用存活状态、写入死亡日志、
  * 回流殉情 / 魅惑连锁产生的触发继续入队（一次一条），检测被抑制的开枪。
  * SPEC §5.1 步骤 7–9 / §5.4
+ *
+ * @param {boolean} [advanceOnEmpty] 队列耗尽时是否直接进入下一夜（普通狼人自爆：
+ *   白天立即结束，SPEC §4.3 步骤 5 / §5.4）。省略时沿用 state.pendingNightAdvance，
+ *   使同一条自爆触发链中后续的开枪 / 翻牌解决仍记得这条链最终要跳到下一夜。
  */
-function applyDeathsFromTrigger(players, deathsList, extraLogEntries, remainingQueue) {
+function applyDeathsFromTrigger(players, deathsList, extraLogEntries, remainingQueue, advanceOnEmpty = state.pendingNightAdvance) {
   const now = Date.now();
   const reasonBySeat = new Map(deathsList.map(d => [d.seat, d.reason]));
   const updatedPlayers = players.map(p =>
@@ -2046,15 +2207,15 @@ function applyDeathsFromTrigger(players, deathsList, extraLogEntries, remainingQ
   const { alertQueue, logAppend } = appendAlerts(suppressedAlerts);
 
   const triggerQueue = [...remainingQueue, ...newTriggers];
-  const daySubPhase = triggerQueue.length ? 'triggers' : 'main';
+  const log = [...state.log, ...extraLogEntries, ...deathEntries, ...logAppend];
 
-  update({
-    players: updatedPlayers,
-    triggerQueue,
-    daySubPhase,
-    alertQueue,
-    log: [...state.log, ...extraLogEntries, ...deathEntries, ...logAppend],
-  });
+  if (triggerQueue.length) {
+    update({ players: updatedPlayers, triggerQueue, daySubPhase: 'triggers', pendingNightAdvance: advanceOnEmpty, alertQueue, log });
+  } else if (advanceOnEmpty) {
+    startNextNight(updatedPlayers, log);
+  } else {
+    update({ players: updatedPlayers, triggerQueue, daySubPhase: 'main', alertQueue, log });
+  }
   if (suppressedAlerts.length) notifyAlert();
 }
 
@@ -2090,8 +2251,14 @@ function resolveIdiotReveal() {
     day: state.day, phase: state.phase, type: 'skill', actor: current.seat, targets: [],
     text: `${current.seat}号 翻牌免死，失去投票权`, result: null, ts: Date.now(),
   };
-  const daySubPhase = rest.length ? 'triggers' : 'main';
-  update({ players, triggerQueue: rest, daySubPhase, log: [...state.log, entry] });
+  const log = [...state.log, entry];
+  if (rest.length) {
+    update({ players, triggerQueue: rest, daySubPhase: 'triggers', log });
+  } else if (state.pendingNightAdvance) {
+    startNextNight(players, log);
+  } else {
+    update({ players, triggerQueue: rest, daySubPhase: 'main', log });
+  }
 }
 
 /** 跳过当前触发（选择不开枪 / 不翻牌）。开枪跳过同样消耗技能槽。SPEC §5.4 */
@@ -2111,42 +2278,193 @@ function skipTrigger() {
     day: state.day, phase: state.phase, type: 'skill', actor: current.seat, targets: [],
     text, result: null, ts: Date.now(),
   };
-  const daySubPhase = rest.length ? 'triggers' : 'main';
-  update({ players, triggerQueue: rest, daySubPhase, log: [...state.log, entry] });
+  const log = [...state.log, entry];
+  if (rest.length) {
+    update({ players, triggerQueue: rest, daySubPhase: 'triggers', log });
+  } else if (state.pendingNightAdvance) {
+    startNextNight(players, log);
+  } else {
+    update({ players, triggerQueue: rest, daySubPhase: 'main', log });
+  }
 }
 
-// ── 以下为 #13 范围，暂未实现 ──
-function startDuel()             { throw new Error('未实现'); }  // 骑士决斗
-function whiteWolfSelfDestruct() { throw new Error('未实现'); }  // 白狼王自爆带人
-function wolfSelfDestruct(seat)  { throw new Error('未实现'); }  // 普通狼人自爆
-function endDay()                { throw new Error('未实现'); }
+// ══════════════════════════════════════════════════════════════════
+// 白天主动行为 —— 骑士决斗 / 白狼王自爆带人 / 狼人自爆 / 进入下一夜   SPEC §4.3 / §5.4
+// ══════════════════════════════════════════════════════════════════
+
+/** 取消进行中的白天主动行为选择，不产生任何状态变更。 */
+function cancelDayAction() {
+  dayActionMode = null;
+  dayActionSeat = null;
+  dayActionTarget = null;
+  render();
+}
+
+/** 骑士决斗：进入「选择对手」模式，骑士座位固定为当前唯一合资格行动者。SPEC §5.4 */
+function startDuel() {
+  const knight = eligibleDayActionPlayers('duel')[0];
+  if (!knight) return;
+  dayActionMode = 'duelTarget';
+  dayActionSeat = knight.seat;
+  dayActionTarget = null;
+  render();
+}
+
+/**
+ * 骑士决斗裁定：法官点选胜负（应用不判定，SPEC §1.2）。
+ * 骑士获胜 → 对手死亡（被骑士处决）；骑士落败 → 骑士死亡（其他，枚举无更贴切项）。
+ * 决斗为一次性技能，无论胜负均消耗。
+ */
+function resolveDuel(result) {
+  const knightSeat = dayActionSeat;
+  const opponentSeat = dayActionTarget;
+  dayActionMode = null;
+  dayActionSeat = null;
+  dayActionTarget = null;
+
+  const loserSeat = result === 'knightWins' ? opponentSeat : knightSeat;
+  const loserReason = result === 'knightWins' ? '被骑士处决' : '其他';
+
+  const players = state.players.map(p =>
+    p.seat === knightSeat ? { ...p, skills: { ...p.skills, duel: false } } : p);
+
+  const entry = {
+    day: state.day, phase: state.phase, type: 'skill', actor: knightSeat, targets: [opponentSeat],
+    text: `骑士 ${knightSeat}号 与 ${opponentSeat}号 决斗 · ${result === 'knightWins' ? '骑士获胜' : '骑士落败'}`,
+    result: null, ts: Date.now(),
+  };
+
+  const { deaths } = cascadeDeaths({ ...state, players }, [{ seat: loserSeat, reason: loserReason }]);
+  applyDeathsFromTrigger(players, deaths, [entry], state.triggerQueue);
+}
+
+/** 白狼王自爆带人：进入「选择目标」模式。SPEC §5.4 */
+function startWwk() {
+  const wwk = eligibleDayActionPlayers('selfDestructWithTarget')[0];
+  if (!wwk) return;
+  dayActionMode = 'wwkTarget';
+  dayActionSeat = wwk.seat;
+  dayActionTarget = null;
+  render();
+}
+
+/**
+ * 白狼王自爆带人：双双死亡（自爆 / 被自爆带走）。白狼王无 deathTrigger，
+ * 不产生任何触发（SPEC §5.4 —— 白狼王正常死亡与自爆均不获得触发）。
+ */
+function resolveWhiteWolfKing(actorSeat, targetSeat) {
+  dayActionMode = null;
+  dayActionSeat = null;
+  dayActionTarget = null;
+
+  const players = state.players.map(p =>
+    p.seat === actorSeat ? { ...p, skills: { ...p.skills, selfDestruct: false } } : p);
+
+  const entry = {
+    day: state.day, phase: state.phase, type: 'skill', actor: actorSeat, targets: [targetSeat],
+    text: `白狼王 ${actorSeat}号 自爆带走 ${targetSeat}号`, result: null, ts: Date.now(),
+  };
+
+  const { deaths } = cascadeDeaths({ ...state, players }, [
+    { seat: actorSeat, reason: '自爆' },
+    { seat: targetSeat, reason: '被自爆带走' },
+  ]);
+  applyDeathsFromTrigger(players, deaths, [entry], state.triggerQueue);
+}
+
+/** 普通狼人自爆：进入「选择自爆者」模式。多名合资格狼人存活时由法官点选。SPEC §5.4 */
+function startWolfSelfDestructPick() {
+  const wolves = eligibleDayActionPlayers('selfDestruct');
+  if (!wolves.length) return;
+  dayActionMode = 'wolfSelfDestructPick';
+  dayActionSeat = null;
+  dayActionTarget = null;
+  render();
+}
+
+/**
+ * 普通狼人自爆：该狼死亡，回流殉情 / 魅惑连锁与触发队列（与天亮结算共用同一链路），
+ * 触发队列耗尽后白天立即结束、直接进入下一夜。SPEC §4.3 步骤 5 / §5.4
+ */
+function resolveWolfSelfDestruct(seat) {
+  dayActionMode = null;
+  dayActionSeat = null;
+  dayActionTarget = null;
+
+  const player = state.players.find(p => p.seat === seat);
+  const role = ROLE_MAP[player?.effectiveRoleId ?? player?.roleId];
+  const entry = {
+    day: state.day, phase: state.phase, type: 'skill', actor: seat, targets: [],
+    text: `${seat}号${role ? `（${role.name}）` : ''}自爆`, result: null, ts: Date.now(),
+  };
+
+  const { deaths } = cascadeDeaths(state, [{ seat, reason: '自爆' }]);
+  applyDeathsFromTrigger(state.players, deaths, [entry], state.triggerQueue, true);
+}
+
+/**
+ * 「进入下一夜」：day + 1，phase → night，重置夜晚步骤与本夜行动。SPEC §4.3 步骤 7
+ */
+function endDay() {
+  const entry = {
+    day: state.day, phase: state.phase, type: 'system', actor: null, targets: [],
+    text: '进入下一夜', result: null, ts: Date.now(),
+  };
+  startNextNight(state.players, [...state.log, entry]);
+}
+
+/** 推进到下一夜的共同落点：白天各流程（含普通狼人自爆的提前结束）最终都汇合于此。 */
+function startNextNight(players, log) {
+  update({
+    players,
+    day: state.day + 1,
+    phase: 'night',
+    stepIndex: 0,
+    daySubPhase: null,
+    nightActions: {},
+    pendingDeaths: [],
+    triggerQueue: [],
+    pendingNightAdvance: false,
+    log,
+  });
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 死亡与复活
 // ══════════════════════════════════════════════════════════════════
 
 /**
- * 标记阵亡；情侣殉情 / 魅惑连锁回流 cascadeDeaths（SPEC §5.1 步骤 7–8）。
- * 触发队列（猎人开枪等）的呈现见 #11–#13，此处不入队。
+ * 标记阵亡（含长按放逐 → 被投票）；情侣殉情 / 魅惑连锁回流 cascadeDeaths
+ * （SPEC §5.1 步骤 7–8），并与天亮结算共用同一条死亡触发队列链路（SPEC §5.4）——
+ * 白痴翻牌免死者不落库死亡，猎人 / 狼王等触发进入 triggers 子阶段逐条呈现。
  * 先执行 + 撤销条。SPEC §5.4 / §8.2 / §8.3
  */
 function markDead(seat, reason) {
   const { deaths } = cascadeDeaths(state, [{ seat, reason }]);
-  const reasonBySeat = new Map(deaths.map(d => [d.seat, d.reason]));
+  const idiotSeats = new Set(deaths.filter(isIdiotReveal).map(d => d.seat));
+  const applied = deaths.filter(d => !idiotSeats.has(d.seat));
+  const reasonBySeat = new Map(applied.map(d => [d.seat, d.reason]));
   const players = state.players.map(p =>
     reasonBySeat.has(p.seat)
       ? { ...p, alive: false, deathReason: reasonBySeat.get(p.seat), deathDay: state.day, deathPhase: state.phase }
       : p);
 
   const now = Date.now();
-  const entries = deaths.map(d => ({
+  const entries = applied.map(d => ({
     day: state.day, phase: state.phase, type: 'death',
     actor: null, targets: [d.seat], text: `${d.seat}号 ${d.reason}`, result: null, ts: now,
   }));
 
+  const newTriggers = buildTriggerQueue({ ...state, players }, deaths);
+  const suppressedAlerts = detectSuppressedShots(deaths, players);
+  const { alertQueue, logAppend } = appendAlerts(suppressedAlerts);
+  const triggerQueue = [...state.triggerQueue, ...newTriggers];
+  const daySubPhase = newTriggers.length ? 'triggers' : state.daySubPhase;
+
   gameDeathPickerSeat = null;
   gameExpandedSeat = null;
-  update({ players, log: [...state.log, ...entries] });
+  update({ players, triggerQueue, daySubPhase, alertQueue, log: [...state.log, ...entries, ...logAppend] });
+  if (suppressedAlerts.length) notifyAlert();
 
   const label = deaths.length > 1
     ? `已标记 ${deaths.map(d => `${d.seat}号`).join('、')} 阵亡`
@@ -2512,6 +2830,12 @@ function handleAppClick(e) {
     case 'add-pending-death':      addPendingDeath(Number(el.dataset.seat), el.dataset.reason); break;
     case 'skip-trigger':           skipTrigger(); break;
     case 'resolve-idiot-reveal':   resolveIdiotReveal(); break;
+    case 'start-duel':              startDuel(); break;
+    case 'resolve-duel':            resolveDuel(el.dataset.result); break;
+    case 'start-wwk':               startWwk(); break;
+    case 'start-wolf-selfdestruct': startWolfSelfDestructPick(); break;
+    case 'cancel-day-action':       cancelDayAction(); break;
+    case 'end-day':                 endDay(); break;
     case 'dismiss-alert':          dismissAlert(); break;
     case 'set-log-filter':     setLogFilter(el.dataset.filter); break;
     case 'toggle-log-group':   toggleLogGroup(el.dataset.key); break;

@@ -799,6 +799,10 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .phase-step-actions .btn { flex: 1 1 auto; }
 .phase-step-dawn { align-items: stretch; }
 
+/** 白天主动行为按钮列表：骑士决斗 / 白狼王自爆带人 / 狼人自爆。SPEC §4.3 */
+.day-action-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.day-action-list:empty { display: none; }
+
 .step-death-line { margin: 0; font-size: 14px; font-weight: 700; }
 
 .step-info-answer {
