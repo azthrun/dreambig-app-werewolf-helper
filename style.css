@@ -164,14 +164,45 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .screen { display: flex; flex-direction: column; flex: 1; }
 .screen[hidden] { display: none; }
 
+/* 局内主界面：固定视口高度，内部仅玩家网格可滚动（SPEC §12.1） */
+#screen-game { height: 100dvh; min-height: 0; overflow: hidden; }
+
 /* 固定：控制区 / 警告区 / 步骤区；仅玩家网格可滚动 */
-.game-header  { /* TODO */ }
-.alert-banner { /* TODO —— 常驻，需点击确认，SPEC §10.2 */ }
-.phase-panel  { /* TODO */ }
-.undo-bar     { /* TODO —— 先执行 + 撤销条，SPEC §8.2 */ }
+.game-header {
+  flex: 0 0 auto;
+  border-bottom: 2px solid var(--color-divider);
+}
+.game-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+.game-header-title { margin: 0; font-size: 16px; }
+
+.alert-banner { flex: 0 0 auto; }
+.alert-banner[hidden] { display: none; }
+
+.phase-panel { flex: 0 0 auto; }
+.phase-panel:empty { display: none; }
+
+.undo-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-top: 2px solid var(--color-accent);
+  background: var(--color-surface);
+}
+.undo-bar[hidden] { display: none; }
+.undo-bar-text { font-size: 13px; }
 
 .player-grid {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: grid;
   gap: var(--space-2);
@@ -370,8 +401,10 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   background: var(--color-accent-100);
 }
 
-/* 阵亡：折叠至约 42px，座位+姓名一行，死因标签独占下一行 */
+/* 阵亡：折叠至约 42px，座位+姓名一行，死因标签独占下一行。
+   align-self: start —— 网格默认拉伸子项填满行高，否则会被同行存活卡片撑高。SPEC §12.2 */
 .player-card.is-dead {
+  align-self: start;
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
@@ -390,8 +423,50 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 .player-card.is-dead > .tag { flex: 0 0 100%; }
 
+.player-card-icon { width: 20px; height: 20px; flex: 0 0 auto; }
+.player-card-lover { font-size: 10px; }
+
 /* 高亮脉冲 —— 警报通道，SPEC §10.2 */
 .player-card.is-pulse { animation: alertPulse 1.1s ease-in-out infinite; }
+
+/* 展开态：身份 / 技能状态 / 修改身份 / 设为情侣 / 恢复存活 / 死因芯片
+   —— 内联展开，非弹窗（SPEC §8.1 / §8.3） */
+.player-card-expanded {
+  grid-column: 1 / -1;
+  align-self: start;
+  align-items: stretch;
+  text-align: left;
+  cursor: default;
+}
+.player-card-expanded-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  cursor: pointer;
+  font-weight: 700;
+}
+.player-card-expanded-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  padding-top: var(--space-2);
+}
+.player-card-expanded-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.skill-status-row,
+.skill-chip-row { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+
+.death-reason-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  width: 100%;
+  padding-top: var(--space-2);
+}
 
 @keyframes alertPulse {
   0%, 100% {
@@ -640,8 +715,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
 /* ══════════════════════════════════════════════════════════════════
-   TODO —— 局内布局区块（骨架，SPEC §12.1，见票 #10–#13）
+   TODO —— 局内布局区块（夜晚/白天流程内容见票 #11–#13）
    ══════════════════════════════════════════════════════════════════
-   · .game-header / .alert-banner / .phase-panel / .undo-bar
    · .log-group / .log-entry / .filter-chip（SPEC §16）
    ══════════════════════════════════════════════════════════════════ */
