@@ -582,6 +582,62 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   cursor: pointer;
 }
 .chip:hover { background: var(--color-neutral-300); }
+.chip.is-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-100);
+  color: var(--color-accent-700);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   日志页                                                    SPEC §16
+   ══════════════════════════════════════════════════════════════════ */
+.log-filter-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.log-groups { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.log-group {
+  border: 2px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.log-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: var(--color-neutral-200);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.log-group-count { font-size: 12px; font-weight: 400; color: var(--color-neutral-600); }
+
+.log-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+}
+.log-group-body[hidden] { display: none; }
+
+.log-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+.log-entry:last-child { border-bottom: none; }
+.log-entry-text { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+.log-entry-note .log-entry-text { font-style: italic; }
+
+.log-note-row { display: flex; gap: var(--space-2); }
+.log-note-row .input { flex: 1 1 auto; min-width: 0; }
 
 /* ══════════════════════════════════════════════════════════════════
    内联横幅                                    SPEC §8.1 / §11.1
