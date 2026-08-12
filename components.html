@@ -3,200 +3,125 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>组件预览 — 狼人杀法官助手</title>
-<script>
-  // 尽早设置主题，避免闪烁；?theme=light|dark 覆盖系统偏好
-  (function () {
-    var theme = new URLSearchParams(location.search).get('theme');
-    if (theme === 'light' || theme === 'dark') {
-      document.documentElement.setAttribute('data-theme', theme);
-    }
-  })();
-</script>
+<title>组件预览 — 角色图标</title>
 <link rel="stylesheet" href="./style.css">
 <style>
-  /* 仅预览页使用，不进入组件层 */
-  body { padding: var(--space-4); }
-  .preview-shell { max-width: 1100px; margin: 0 auto; }
-  .preview-frames {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  body {
+    padding: var(--space-6);
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: var(--space-4);
+    margin-bottom: var(--space-6);
   }
-  @media (max-width: 720px) {
-    .preview-frames { grid-template-columns: 1fr; }
+  .preview-header h1 {
+    font-size: 18px;
+    margin: 0;
   }
-  .preview-frame-label {
-    font-weight: 700;
-    margin: 0 0 var(--space-2);
-  }
-  .preview-frame iframe {
-    display: block;
-    width: 100%;
-    height: 2200px;
-    border: 2px solid var(--color-divider);
-  }
-  .preview-section { margin-bottom: var(--space-8); }
-  .preview-section h2 {
-    font-size: 15px;
+  .icon-group h2 {
+    font-size: 14px;
+    color: var(--color-neutral-600);
     border-bottom: 2px solid var(--color-divider);
     padding-bottom: var(--space-2);
-    margin-bottom: var(--space-3);
+    margin: var(--space-6) 0 var(--space-4);
   }
-  .preview-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3);
-    margin-bottom: var(--space-3);
-  }
-  .preview-grid-3 {
+  .icon-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: var(--space-4);
+  }
+  .icon-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     gap: var(--space-2);
-    max-width: 320px;
+    padding: var(--space-3);
+    border: 2px solid var(--color-divider);
+  }
+  .icon-card svg {
+    width: 24px;
+    height: 24px;
+    color: var(--color-text);
+    flex-shrink: 0;
+  }
+  .icon-card .icon-name {
+    font-size: 13px;
+    text-align: center;
+  }
+  .icon-card .icon-id {
+    font-size: 11px;
+    color: var(--color-neutral-600);
   }
 </style>
 </head>
 <body>
 
-<div id="index-view" class="preview-shell">
-  <h1>组件预览</h1>
-  <p>亮 / 暗两种主题并排呈现，用于设计校验与视觉回归（SPEC §12.4）。</p>
-  <div class="preview-frames">
-    <div class="preview-frame">
-      <p class="preview-frame-label">浅色主题</p>
-      <iframe src="./components.html?theme=light&panel=1" title="浅色主题组件预览"></iframe>
-    </div>
-    <div class="preview-frame">
-      <p class="preview-frame-label">暗色主题</p>
-      <iframe src="./components.html?theme=dark&panel=1" title="暗色主题组件预览"></iframe>
-    </div>
-  </div>
+<div class="preview-header">
+  <h1>角色图标 sprite 预览 — SPEC §12.5</h1>
+  <button type="button" class="btn btn-secondary" id="theme-toggle">切换主题</button>
 </div>
 
-<div id="panel-view" class="preview-shell" hidden>
+<div id="icon-sprite" hidden></div>
 
-  <section class="preview-section">
-    <h2>按钮 .btn</h2>
-    <div class="preview-row">
-      <button class="btn btn-primary">主按钮</button>
-      <button class="btn btn-secondary">次按钮</button>
-      <button class="btn btn-ghost">幽灵按钮</button>
-      <button class="btn btn-icon" aria-label="设置">⚙</button>
-      <button class="btn btn-primary" disabled>禁用</button>
-    </div>
-    <div class="preview-row" style="max-width:280px">
-      <button class="btn btn-primary btn-block">整行按钮</button>
-    </div>
-  </section>
+<div id="groups"></div>
 
-  <section class="preview-section">
-    <h2>长按守护 .btn-longpress（SPEC §8.2）</h2>
-    <div class="preview-row">
-      <button class="btn btn-secondary btn-longpress" id="lp-demo">长按结束（按住 600ms）</button>
-    </div>
-  </section>
+<script type="module">
+import { ROLES, CAMP, CAMP_NAME } from './roles.js';
 
-  <section class="preview-section">
-    <h2>标签 .tag</h2>
-    <div class="preview-row">
-      <span class="tag">已选 9 / 9 人</span>
-      <span class="tag-accent tag">同守同救</span>
-      <span class="tag-outline tag">已用技能</span>
-    </div>
-  </section>
+async function inlineSprite() {
+  const res = await fetch('./icons.svg');
+  const text = await res.text();
+  document.getElementById('icon-sprite').innerHTML = text;
+}
 
-  <section class="preview-section">
-    <h2>表单 .field / .input</h2>
-    <div class="preview-row" style="max-width:280px; flex-direction:column; align-items:stretch;">
-      <div class="field">
-        <label for="demo-name">座位 3 姓名</label>
-        <input id="demo-name" class="input" type="text" placeholder="座位3">
-      </div>
-    </div>
-  </section>
+function iconCard(iconId, name) {
+  const card = document.createElement('div');
+  card.className = 'icon-card';
+  card.innerHTML = `
+    <svg aria-hidden="true"><use href="#${iconId}"></use></svg>
+    <span class="icon-name">${name}</span>
+    <span class="icon-id">${iconId}</span>
+  `;
+  return card;
+}
 
-  <section class="preview-section">
-    <h2>玩家卡片 .player-card</h2>
-    <div class="preview-grid-3">
-      <div class="player-card">
-        <span class="player-card-seat">1号</span>
-        <span class="player-card-name">小明</span>
-        <span class="player-card-role">预言家</span>
-      </div>
-      <div class="player-card is-selectable">
-        <span class="player-card-seat">2号</span>
-        <span class="player-card-name">小红</span>
-        <span class="player-card-role">可选目标</span>
-      </div>
-      <div class="player-card is-selected">
-        <span class="player-card-seat">3号</span>
-        <span class="player-card-name">小刚</span>
-        <span class="player-card-role">已选</span>
-      </div>
-      <div class="player-card is-pulse">
-        <span class="player-card-seat">4号</span>
-        <span class="player-card-name">小美</span>
-        <span class="player-card-role">警报高亮</span>
-      </div>
-      <div class="player-card is-dead">
-        <span class="player-card-seat">5号</span>
-        <span class="player-card-name">小华</span>
-        <span class="tag-outline tag">被狼杀</span>
-      </div>
-      <div class="player-card is-dead">
-        <span class="player-card-seat">6号</span>
-        <span class="player-card-name">小李</span>
-        <span class="tag-outline tag">被投票</span>
-      </div>
-    </div>
-  </section>
+function renderRoles() {
+  const groupsEl = document.getElementById('groups');
 
-  <section class="preview-section">
-    <h2>技能芯片 .skill-chip</h2>
-    <div class="preview-row">
-      <span class="skill-chip">解药</span>
-      <span class="skill-chip is-used">毒药</span>
-      <span class="skill-chip">开枪</span>
-      <span class="skill-chip is-used">决斗</span>
-    </div>
-  </section>
-
-  <section class="preview-section">
-    <h2>拖拽态 .drag-handle / .dragging / .drop-gap</h2>
-    <div class="preview-row" style="flex-direction:column; align-items:stretch; max-width:280px;">
-      <div class="preview-row" style="border:2px solid var(--color-divider); padding:0 var(--space-2);">
-        <span class="drag-handle" aria-label="拖拽排序">⠿</span>
-        <span>座位 1 · 小明</span>
-      </div>
-      <div class="drop-gap is-active"></div>
-      <div class="preview-row dragging" style="border:2px solid var(--color-divider); padding:0 var(--space-2);">
-        <span class="drag-handle" aria-label="拖拽排序">⠿</span>
-        <span>座位 2 · 小红（拖拽中）</span>
-      </div>
-    </div>
-  </section>
-
-</div>
-
-<script>
-  var params = new URLSearchParams(location.search);
-  if (params.get('panel') === '1') {
-    document.getElementById('index-view').hidden = true;
-    document.getElementById('panel-view').hidden = false;
+  for (const camp of [CAMP.WOLF, CAMP.GOD, CAMP.CIV]) {
+    const group = document.createElement('div');
+    group.className = 'icon-group';
+    group.innerHTML = `<h2>${CAMP_NAME[camp]}</h2>`;
+    const grid = document.createElement('div');
+    grid.className = 'icon-grid';
+    for (const role of ROLES.filter(r => r.camp === camp)) {
+      grid.appendChild(iconCard(role.icon, role.name));
+    }
+    group.appendChild(grid);
+    groupsEl.appendChild(group);
   }
 
-  // 长按守护演示：按住 600ms 触发，中途松开 / 移开则取消
-  var lp = document.getElementById('lp-demo');
-  if (lp) {
-    var press = function () { lp.classList.add('is-pressing'); };
-    var release = function () { lp.classList.remove('is-pressing'); };
-    lp.addEventListener('pointerdown', press);
-    lp.addEventListener('pointerup', release);
-    lp.addEventListener('pointerleave', release);
-    lp.addEventListener('pointercancel', release);
-  }
+  const statusGroup = document.createElement('div');
+  statusGroup.className = 'icon-group';
+  statusGroup.innerHTML = `<h2>状态标记（非角色，SPEC §5.3）</h2>`;
+  const statusGrid = document.createElement('div');
+  statusGrid.className = 'icon-grid';
+  statusGrid.appendChild(iconCard('icon-lover', '情侣'));
+  statusGroup.appendChild(statusGrid);
+  groupsEl.appendChild(statusGroup);
+}
+
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const root = document.documentElement;
+  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+});
+
+await inlineSprite();
+renderRoles();
 </script>
 
 </body>
