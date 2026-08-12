@@ -1159,7 +1159,7 @@ const WINNER_OPTIONS = [
 
 /**
  * 战报页：法官点选胜方、完整名单（座位 / 姓名 / 身份 / 死因 / 死亡时间）、
- * 总时长与天数、完整日志；复制日志文本 / 开新局（长按）/ 返回。SPEC §4.4
+ * 总时长与天数、完整日志；开新局（长按）/ 返回。SPEC §4.4
  */
 function renderReport() {
   const host = document.getElementById('screen-report');
@@ -1177,7 +1177,12 @@ function renderReport() {
     <div class="wrap report-screen">
       <div class="setup-header">
         <h1>战报</h1>
-        <button type="button" class="btn btn-secondary" data-action="return-to-game-report">‹ 返回</button>
+        <div class="actions">
+          <button type="button" class="btn btn-secondary btn-longpress" data-action="new-game-report" data-longpress="true">
+            <span>开新局</span>
+          </button>
+          <button type="button" class="btn btn-secondary" data-action="return-to-game-report">‹ 返回</button>
+        </div>
       </div>
 
       <section class="report-section">
@@ -1194,17 +1199,10 @@ function renderReport() {
         <div class="report-roster">${rosterHtml}</div>
       </section>
 
-      <section class="report-section">
+      <section class="report-section report-log-section">
         <h2 class="report-section-title">完整日志</h2>
         <div class="report-log">${logHtml}</div>
       </section>
-
-      <div class="actions report-actions">
-        <button type="button" class="btn btn-secondary" data-action="copy-log-report">复制日志文本</button>
-        <button type="button" class="btn btn-secondary btn-longpress" data-action="new-game-report" data-longpress="true">
-          <span>开新局</span>
-        </button>
-      </div>
     </div>
   `;
 
@@ -1297,61 +1295,6 @@ function startNewGameFromReport() {
   pendingResume = null;
   resetGameUiState();
   update(() => createInitialState(), { snapshot: false });
-}
-
-/** 复制日志文本：将全部日志写入剪贴板，供法官粘贴到微信群等外部渠道留存。SPEC §4.4 */
-async function copyReportLog() {
-  const text = buildLogExportText();
-  const copied = await copyTextToClipboard(text);
-  showToast(copied ? '已复制日志文本' : '复制失败，请手动截图保存');
-}
-
-/** 全部日志的纯文本导出，按 `第N夜` / `第N天` 分组标题 + 逐条文本。 */
-function buildLogExportText() {
-  const lines = [];
-  let lastKey = null;
-  state.log.forEach(entry => {
-    const key = `${entry.day}-${entry.phase}`;
-    if (key !== lastKey) {
-      lastKey = key;
-      lines.push(`第${entry.day}${entry.phase === 'night' ? '夜' : '天'}`);
-    }
-    lines.push(entry.text);
-  });
-  return lines.join('\n');
-}
-
-/** 写入剪贴板，优先 Clipboard API，回落至 execCommand（旧内核 WebView）。返回是否成功。 */
-async function copyTextToClipboard(text) {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch { /* 回落至 execCommand */ }
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
-}
-
-/** 瞬时非阻断状态条，无撤销动作（用于无状态变更可撤销的提示，如复制成功）。SPEC §8.2 */
-function showToast(text) {
-  const bar = document.getElementById('undo-bar');
-  if (!bar) return;
-  if (undoBarTimer) { clearTimeout(undoBarTimer); undoBarTimer = null; }
-  bar.hidden = false;
-  bar.innerHTML = `<span class="undo-bar-text">${escapeText(text)}</span>`;
-  undoBarTimer = setTimeout(hideUndoBar, UNDO_BAR_MS);
 }
 
 /**
@@ -3301,7 +3244,6 @@ function handleAppClick(e) {
     }
     case 'delete-note':        deleteNote(Number(el.dataset.index)); break;
     case 'set-winner':            setWinner(el.dataset.winner); break;
-    case 'copy-log-report':       copyReportLog(); break;
     case 'return-to-game-report': returnToGameFromReport(); break;
     default: break;
   }
