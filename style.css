@@ -187,8 +187,15 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .phase-panel { flex: 0 0 auto; }
 .phase-panel:empty { display: none; }
 
+/* 跨屏固定条：不属于任一 .screen，随屏幕切换保持可见（SPEC §8.2 / §16.2 备注删除撤销）。 */
 .undo-bar {
-  flex: 0 0 auto;
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: 100%;
+  max-width: var(--app-max-width);
   display: flex;
   align-items: center;
   justify-content: space-between;
