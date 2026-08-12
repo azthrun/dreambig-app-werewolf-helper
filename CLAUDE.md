@@ -10,6 +10,12 @@
 
 Issues live in this repo's GitHub Issues (`azthrun/dreambig-app-werewolf-helper`), accessed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
+Blocking edges use GitHub's native issue dependencies. Only work a ticket whose open blocker count is zero.
+
+### Implementing a ticket
+
+Any agent implementing a ticket must follow `docs/agents/ticket-agent-prompt.md` — it fixes the context to load first, the scope fence (acceptance criteria are the contract), the ten project invariants that must never be broken, and when to stop and ask rather than decide.
+
 ### Triage labels
 
 The five canonical triage roles, each label string equal to its name (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
