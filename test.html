@@ -25,6 +25,9 @@ import {
   bearGrowls, validateAction, activeNightSteps, campCounts,
   pickFirstSpeaker, nextAliveSeat,
 } from './engine.js';
+import {
+  ROLE_MAP, DEFAULT_NIGHT_ORDER, DEFAULT_RULES, DEFAULT_SETTINGS,
+} from './roles.js';
 
 // ── 极简测试框架 ──────────────────────────────────────────────────
 const results = document.getElementById('results');
@@ -62,10 +65,208 @@ function assertDeaths(actual, expected) {
 }
 
 // ── 夹具 ──────────────────────────────────────────────────────────
-// TODO: makeState({ players, roleCounts, rules, nightActions, ... })
-function makeState(overrides = {}) {
-  throw new Error('PENDING');
+/**
+ * 简洁构造任意局面。
+ *
+ * @param {Object}   [opts]
+ * @param {number}   [opts.playerCount=9]
+ * @param {Object.<number,string>} [opts.roles]     seat → roleId
+ * @param {Object.<number,boolean>} [opts.alive]    seat → 存活（默认全存活）
+ * @param {Array<[number,number]>} [opts.lovers]    情侣座位对（互相连线）
+ * @param {Object.<number,number>} [opts.charmed]   seat(被魅惑者) → seat(狼美人)
+ * @param {Object.<number,Object>} [opts.players]   seat → 任意 Player 字段覆盖（含 skills/flags 浅合并）
+ * @param {...*}     [opts.*]  其余字段直接覆盖 GameState 顶层键（day, phase, nightOrder, rules, nightActions, ...）
+ */
+function makeState(opts = {}) {
+  const playerCount = opts.playerCount ?? 9;
+
+  const players = [];
+  for (let seat = 1; seat <= playerCount; seat++) {
+    const roleId = opts.roles?.[seat] ?? null;
+    const role = roleId ? ROLE_MAP[roleId] : null;
+    const skills = {};
+    for (const key of role?.skills ?? []) skills[key] = true;
+
+    players.push({
+      seat,
+      name: '',
+      roleId,
+      effectiveRoleId: roleId,
+      alive: true,
+      deathReason: null,
+      deathDay: null,
+      deathPhase: null,
+      loverSeat: null,
+      charmedBySeat: null,
+      isSheriff: false,
+      skills,
+      flags: { idiotRevealed: false, foxDisabled: false },
+    });
+  }
+
+  for (const [seat, alive] of Object.entries(opts.alive ?? {})) {
+    players[Number(seat) - 1].alive = alive;
+  }
+
+  for (const [a, b] of opts.lovers ?? []) {
+    players[a - 1].loverSeat = b;
+    players[b - 1].loverSeat = a;
+  }
+
+  for (const [seat, bySeat] of Object.entries(opts.charmed ?? {})) {
+    players[Number(seat) - 1].charmedBySeat = bySeat;
+  }
+
+  for (const [seat, patch] of Object.entries(opts.players ?? {})) {
+    const p = players[Number(seat) - 1];
+    Object.assign(p, patch, {
+      skills: { ...p.skills, ...(patch.skills ?? {}) },
+      flags: { ...p.flags, ...(patch.flags ?? {}) },
+    });
+  }
+
+  return {
+    version: 1,
+    screen: 'game',
+    playerCount,
+    roleCounts: opts.roleCounts ?? {},
+    players,
+    nightOrder: opts.nightOrder ?? DEFAULT_NIGHT_ORDER.slice(),
+    rules: { ...DEFAULT_RULES, ...(opts.rules ?? {}) },
+    settings: { ...DEFAULT_SETTINGS, ...(opts.settings ?? {}) },
+    day: opts.day ?? 1,
+    phase: opts.phase ?? 'night',
+    stepIndex: opts.stepIndex ?? 0,
+    nightActions: opts.nightActions ?? {},
+    lastGuardTarget: opts.lastGuardTarget ?? null,
+    pendingDeaths: opts.pendingDeaths ?? [],
+    triggerQueue: opts.triggerQueue ?? [],
+    timer: opts.timer ?? {
+      mode: 'free', endsAt: null, pausedRemaining: null,
+      running: false, speechSeat: null, speechDirection: 1,
+    },
+    log: opts.log ?? [],
+    history: opts.history ?? [],
+    alert: opts.alert ?? null,
+  };
 }
+
+// ── 基础纯函数（不依赖结算，issue #3 范围）──────────────────────────
+
+test('activeNightSteps: 过滤缺席角色，仅保留在场角色对应步骤', () => {
+  const state = makeState({
+    playerCount: 4,
+    roles: { 1: 'seer', 2: 'villager', 3: 'villager', 4: 'villager' },
+    nightOrder: ['cupid', 'guard', 'wolfkill', 'seer'],
+  });
+  const steps = activeNightSteps(state);
+  assert(JSON.stringify(steps) === JSON.stringify(['seer']),
+    `期望 ["seer"]，实际 ${JSON.stringify(steps)}`);
+});
+
+test('activeNightSteps: firstNightOnly 步骤仅第一夜出现', () => {
+  const base = { playerCount: 2, roles: { 1: 'cupid', 2: 'villager' }, nightOrder: ['cupid'] };
+  const night1 = makeState({ ...base, day: 1 });
+  const night2 = makeState({ ...base, day: 2 });
+  assert(activeNightSteps(night1).includes('cupid'), '第一夜应包含 cupid');
+  assert(!activeNightSteps(night2).includes('cupid'), '第二夜不应包含 cupid');
+});
+
+test('activeNightSteps: 女巫双药用尽 → 跳过女巫步骤', () => {
+  const state = makeState({
+    playerCount: 2,
+    roles: { 1: 'witch', 2: 'villager' },
+    nightOrder: ['witch'],
+    players: { 1: { skills: { antidote: false, poison: false } } },
+  });
+  assert(activeNightSteps(state).length === 0, '双药用尽应跳过女巫步骤');
+});
+
+test('activeNightSteps: 女巫仅剩一瓶药仍出现', () => {
+  const state = makeState({
+    playerCount: 2,
+    roles: { 1: 'witch', 2: 'villager' },
+    nightOrder: ['witch'],
+    players: { 1: { skills: { antidote: false, poison: true } } },
+  });
+  assert(activeNightSteps(state).includes('witch'), '仍有一瓶药时女巫步骤应保留');
+});
+
+test('activeNightSteps: 狐狸失效 → 跳过狐狸步骤', () => {
+  const state = makeState({
+    playerCount: 2,
+    roles: { 1: 'fox', 2: 'villager' },
+    nightOrder: ['fox'],
+    players: { 1: { flags: { foxDisabled: true } } },
+  });
+  assert(activeNightSteps(state).length === 0, '狐狸失效应跳过该步骤');
+});
+
+test('activeNightSteps: 死亡角色的步骤不出现', () => {
+  const state = makeState({
+    playerCount: 2,
+    roles: { 1: 'seer', 2: 'villager' },
+    alive: { 1: false },
+    nightOrder: ['seer'],
+  });
+  assert(activeNightSteps(state).length === 0, '预言家已死不应出现查验步骤');
+});
+
+test('campCounts: 仅统计存活且身份已知玩家，未知单独计数', () => {
+  const state = makeState({
+    playerCount: 5,
+    roles: { 1: 'wolf', 2: 'seer', 3: 'villager', 4: 'wolf' },
+    alive: { 4: false }, // 座位4已死，不计入
+    // 座位5 无角色 → 未知
+  });
+  const counts = campCounts(state);
+  assert(counts.wolf === 1, `wolf 应为1，实际 ${counts.wolf}`);
+  assert(counts.god === 1, `god 应为1，实际 ${counts.god}`);
+  assert(counts.civ === 1, `civ 应为1，实际 ${counts.civ}`);
+  assert(counts.unknown === 1, `unknown 应为1，实际 ${counts.unknown}`);
+});
+
+test('nextAliveSeat: 顺时针跳过阵亡座位', () => {
+  const state = makeState({ playerCount: 6, alive: { 2: false, 3: false } });
+  const seat = nextAliveSeat(state, 1, 1);
+  assert(seat === 4, `期望4号，实际 ${seat}`);
+});
+
+test('nextAliveSeat: 逆时针环绕取下一个存活座位', () => {
+  const state = makeState({ playerCount: 6, alive: { 6: false, 5: false } });
+  const seat = nextAliveSeat(state, 1, -1);
+  assert(seat === 4, `期望4号，实际 ${seat}`);
+});
+
+test('nextAliveSeat: 全员阵亡 → null', () => {
+  const alive = {};
+  for (let i = 1; i <= 6; i++) alive[i] = false;
+  const state = makeState({ playerCount: 6, alive });
+  assert(nextAliveSeat(state, 1, 1) === null, '全员阵亡应返回 null');
+});
+
+test('nextAliveSeat: 唯一存活座位环绕后返回自身', () => {
+  const alive = {};
+  for (let i = 1; i <= 6; i++) alive[i] = (i === 3);
+  const state = makeState({ playerCount: 6, alive });
+  assert(nextAliveSeat(state, 3, 1) === 3, '唯一存活座位应返回自身');
+});
+
+test('pickFirstSpeaker: 仅在存活玩家中抽取，且给出座位与方向', () => {
+  const state = makeState({ playerCount: 6, alive: { 2: false, 4: false, 6: false } });
+  for (let i = 0; i < 50; i++) {
+    const { seat, direction } = pickFirstSpeaker(state);
+    assert([1, 3, 5].includes(seat), `抽到了阵亡座位 ${seat}`);
+    assert(direction === 1 || direction === -1, `方向异常: ${direction}`);
+  }
+});
+
+test('pickFirstSpeaker: 全员阵亡 → null', () => {
+  const alive = {};
+  for (let i = 1; i <= 4; i++) alive[i] = false;
+  const state = makeState({ playerCount: 4, alive });
+  assert(pickFirstSpeaker(state) === null, '全员阵亡应返回 null');
+});
 
 // ── SPEC §18 必测场景 ─────────────────────────────────────────────
 
