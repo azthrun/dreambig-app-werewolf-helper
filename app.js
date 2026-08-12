@@ -7,11 +7,10 @@
  *   · storage.js —— 持久化
  *   · app.js     —— 状态持有、副作用、DOM 渲染、手势
  *
- * 本票（#7）范围：状态容器（唯一写入口 / 撤销 / 版本化持久化）、
- * 屏幕路由、设置 Step 1（人数与角色牌）、主题应用。
- * 设置 Step 2（玩家名单、姓名池、拖拽排序）与 Step 3（夜晚顺序、计时、
- * 高级规则）为本票（#8）范围。Step 4、局内网格、夜晚/白天流程、计时器、
- * 日志、战报等留给 #9–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
+ * 状态容器（唯一写入口 / 撤销 / 版本化持久化）、屏幕路由、设置向导
+ * 全部四步（人数与角色牌 #7、玩家名单与姓名池 #8、夜晚顺序与计时 #8、
+ * 分配身份与开局 #9）与主题应用已实现。局内网格、夜晚/白天流程、计时器、
+ * 日志、战报等留给 #10–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
  */
 
 import {
@@ -69,6 +68,11 @@ let namePool = { pool: [], lastRoster: [] };
 /** Step 3「高级规则」折叠区的展开状态 —— 纯 UI 瞬态，不入 GameState。默认收起。 */
 let advancedRulesOpen = false;
 
+// ── Step 4 身份分配 —— 纯 UI 选择状态，不入 GameState/撤销栈 ──
+let identitySelectedSeat = null;   // 当前待分配身份的座位
+let loverPairMode = false;         // 「设为情侣」模式是否开启
+let loverPairFirstSeat = null;     // 情侣配对已选中的第一个座位
+
 /** 建立初始状态。SPEC §3.3 */
 function createInitialState() {
   return {
@@ -98,6 +102,25 @@ function createInitialState() {
     log: [],
     history: [],
     alert: null,
+  };
+}
+
+/** 建立空白玩家。SPEC §3.2 —— roleId 为 null 即「未知身份」，渐进填充见 §8.4 */
+function createPlayer(seat) {
+  return {
+    seat,
+    name: '',
+    roleId: null,
+    effectiveRoleId: null,
+    alive: true,
+    deathReason: null,
+    deathDay: null,
+    deathPhase: null,
+    loverSeat: null,
+    charmedBySeat: null,
+    isSheriff: false,
+    skills: {},
+    flags: { idiotRevealed: false, foxDisabled: false },
   };
 }
 
@@ -399,20 +422,101 @@ function renderSetup3() {
   });
 }
 
-/** 设置 Step 4 —— 分配身份。内容详见 #9。 */
+/** 设置 Step 4 —— 分配身份。紧凑网格：点座位 → 点角色。SPEC §4.1 / §8.4 */
 function renderSetup4() {
   const host = document.getElementById('screen-setup4');
   if (!host) return;
+
+  const assigned = state.players.filter(p => p.roleId).length;
+  const assignedByRole = {};
+  for (const p of state.players) {
+    if (p.roleId) assignedByRole[p.roleId] = (assignedByRole[p.roleId] ?? 0) + 1;
+  }
+
+  const seatsHtml = state.players.map(p => {
+    const role = p.roleId ? ROLE_MAP[p.roleId] : null;
+    const isPicking = identitySelectedSeat === p.seat || loverPairFirstSeat === p.seat;
+    const loverTag = p.loverSeat != null ? `<span class="tag tag-outline">💕${p.loverSeat}号</span>` : '';
+    return `
+      <button type="button"
+              class="player-card is-selectable${isPicking ? ' is-selected' : ''}"
+              data-action="select-seat4" data-seat="${p.seat}">
+        <span class="player-card-seat">${p.seat}号</span>
+        <span class="player-card-name">${p.name || `座位${p.seat}`}</span>
+        <span class="player-card-role">${role ? role.name : '未知身份'}</span>
+        ${loverTag}
+      </button>
+    `;
+  }).join('');
+
+  const rolePickerHtml = identitySelectedSeat != null ? `
+    <div class="banner-inline" role="status">
+      <span>为 ${identitySelectedSeat}号 选择身份</span>
+      <div class="banner-actions">
+        <button type="button" class="btn btn-ghost btn-sm" data-action="clear-role4" data-seat="${identitySelectedSeat}">清除身份</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="select-seat4" data-seat="${identitySelectedSeat}">取消</button>
+      </div>
+    </div>
+    <div class="role-groups">
+      ${[CAMP.WOLF, CAMP.GOD, CAMP.CIV].map(camp => `
+        <div class="camp-group">
+          <h3 class="camp-group-title">${CAMP_NAME[camp]}</h3>
+          ${ROLES.filter(r => r.camp === camp).map(r => {
+            const remaining = (state.roleCounts[r.id] ?? 0) - (assignedByRole[r.id] ?? 0);
+            return `
+              <button type="button" class="role-row-select" data-action="assign-role4" data-role="${r.id}">
+                <span class="role-row-name">${r.name}</span>
+                <span class="tag${remaining <= 0 ? ' tag-outline' : ''}">剩余 ${remaining}</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  const loverBannerHtml = loverPairMode ? `
+    <div class="banner-inline" role="status">
+      <span>${loverPairFirstSeat == null ? '点选两名玩家建立情侣关系' : `已选 ${loverPairFirstSeat}号 · 再点选一名玩家`}</span>
+      <div class="banner-actions">
+        <button type="button" class="btn btn-ghost btn-sm" data-action="toggle-lover-mode">取消</button>
+      </div>
+    </div>
+  ` : '';
+
   host.innerHTML = `
-    <div class="wrap">
-      <h1>分配身份</h1>
-      <p class="note">身份分配网格与随机分配见票 #9。身份非必填，可直接开始游戏。</p>
-      <div class="actions">
-        <button type="button" class="btn btn-secondary" data-action="goto-setup3">‹ 上一步</button>
-        <button type="button" class="btn btn-primary" data-action="goto-game">开始游戏</button>
+    <div class="setup-screen">
+      <header class="setup-header">
+        <h1>分配身份</h1>
+        <span class="tag">已分配 ${assigned} / ${state.playerCount}</span>
+      </header>
+
+      <div class="preset-row">
+        <button type="button" class="btn btn-secondary" data-action="assign-random-roles">随机分配剩余身份</button>
+        <button type="button" class="btn btn-secondary${loverPairMode ? ' is-active' : ''}" data-action="toggle-lover-mode">设为情侣</button>
+      </div>
+
+      ${loverBannerHtml}
+
+      <div class="player-grid" data-columns="${columnsForCount(state.playerCount)}">${seatsHtml}</div>
+
+      ${rolePickerHtml}
+
+      <div class="setup-footer">
+        <div class="actions">
+          <button type="button" class="btn btn-secondary" data-action="goto-setup3">‹ 上一步</button>
+          <button type="button" class="btn btn-primary btn-block" data-action="start-game">开始游戏</button>
+        </div>
       </div>
     </div>
   `;
+}
+
+/** 玩家网格列数：≤9→3、10–16→4、17–20→5。SPEC §12.2 */
+function columnsForCount(n) {
+  if (n <= 9) return 3;
+  if (n <= 16) return 4;
+  return 5;
 }
 
 /** 局内主界面。仅局头占位；网格与夜晚/白天流程见 #10–#13。SPEC §12.1 */
@@ -522,16 +626,6 @@ function gotoScreen(screen) {
 // ══════════════════════════════════════════════════════════════════
 // 设置 Step 2 —— 玩家名单
 // ══════════════════════════════════════════════════════════════════
-
-/** 建立一个空 Player。SPEC §3.2 */
-function createPlayer(seat) {
-  return {
-    seat, name: '', roleId: null, effectiveRoleId: null, alive: true,
-    deathReason: null, deathDay: null, deathPhase: null,
-    loverSeat: null, charmedBySeat: null, isSheriff: false,
-    skills: {}, flags: { idiotRevealed: false, foxDisabled: false },
-  };
-}
 
 /** 使 state.players 与 state.playerCount 同步，保留已存在座位的数据。 */
 function ensurePlayersSynced() {
@@ -647,6 +741,163 @@ function setRule(key, value) {
 
 function setSetting(key, value) {
   update({ settings: { ...state.settings, [key]: value } });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 设置 Step 4 —— 分配身份与开局
+// ══════════════════════════════════════════════════════════════════
+
+/**
+ * 按 playerCount 补齐 players 数组（座位 1..N），保留已存在座位的数据。
+ * Step 2（#8）尚未落地，姓名/排序留空，本票仅需座位与身份骨架存在。
+ */
+function ensurePlayers() {
+  const bySeat = new Map(state.players.map(p => [p.seat, p]));
+  const next = [];
+  for (let seat = 1; seat <= state.playerCount; seat++) {
+    next.push(bySeat.get(seat) ?? createPlayer(seat));
+  }
+  const changed = next.length !== state.players.length || next.some((p, i) => p !== state.players[i]);
+  if (changed) update({ players: next }, { snapshot: false });
+}
+
+function enterSetup4() {
+  ensurePlayers();
+  identitySelectedSeat = null;
+  loverPairMode = false;
+  loverPairFirstSeat = null;
+  gotoScreen('setup4');
+}
+
+function selectSeat4(seat) {
+  if (loverPairMode) {
+    handleLoverSeatClick(seat);
+    return;
+  }
+  identitySelectedSeat = identitySelectedSeat === seat ? null : seat;
+  render();
+}
+
+function assignRole4(roleId) {
+  if (identitySelectedSeat == null) return;
+  const seat = identitySelectedSeat;
+  const players = state.players.map(p =>
+    p.seat === seat ? { ...p, roleId, effectiveRoleId: roleId } : p);
+  identitySelectedSeat = null;
+  update({ players });
+}
+
+function clearRole4(seat) {
+  const players = state.players.map(p =>
+    p.seat === seat ? { ...p, roleId: null, effectiveRoleId: null } : p);
+  identitySelectedSeat = null;
+  update({ players });
+}
+
+/** 随机分配剩余身份。仅覆盖未分配座位与未分配满的角色。SPEC §4.1 Step4 */
+function randomAssignRemainingRoles() {
+  const assignedByRole = {};
+  for (const p of state.players) {
+    if (p.roleId) assignedByRole[p.roleId] = (assignedByRole[p.roleId] ?? 0) + 1;
+  }
+  const pool = [];
+  for (const [roleId, count] of Object.entries(state.roleCounts)) {
+    const remaining = count - (assignedByRole[roleId] ?? 0);
+    for (let i = 0; i < remaining; i++) pool.push(roleId);
+  }
+  shuffleCrypto(pool);
+
+  let i = 0;
+  const players = state.players.map(p => {
+    if (p.roleId != null) return p;
+    const roleId = pool[i];
+    if (roleId == null) return p;
+    i++;
+    return { ...p, roleId, effectiveRoleId: roleId };
+  });
+  identitySelectedSeat = null;
+  update({ players });
+}
+
+/** Fisher–Yates，使用 crypto.getRandomValues。SPEC §4.1 Step4 */
+function shuffleCrypto(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    const j = buf[0] % (i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+function toggleLoverMode() {
+  loverPairMode = !loverPairMode;
+  loverPairFirstSeat = null;
+  render();
+}
+
+/** 手动配对情侣：设置阶段点选两名玩家。SPEC §5.3 */
+function handleLoverSeatClick(seat) {
+  if (loverPairFirstSeat == null) {
+    const player = state.players.find(p => p.seat === seat);
+    if (player && player.loverSeat != null) {
+      unpairLovers(seat);
+      loverPairMode = false;
+      render();
+      return;
+    }
+    loverPairFirstSeat = seat;
+    render();
+    return;
+  }
+  if (loverPairFirstSeat === seat) {
+    loverPairFirstSeat = null;
+    render();
+    return;
+  }
+  const firstSeat = loverPairFirstSeat;
+  loverPairFirstSeat = null;
+  loverPairMode = false;
+  pairLovers(firstSeat, seat);
+}
+
+function pairLovers(seatA, seatB) {
+  const players = state.players.map(p => {
+    if (p.seat === seatA) return { ...p, loverSeat: seatB };
+    if (p.seat === seatB) return { ...p, loverSeat: seatA };
+    return p;
+  });
+  update({ players });
+}
+
+function unpairLovers(seat) {
+  const player = state.players.find(p => p.seat === seat);
+  if (!player || player.loverSeat == null) return;
+  const otherSeat = player.loverSeat;
+  const players = state.players.map(p =>
+    (p.seat === seat || p.seat === otherSeat) ? { ...p, loverSeat: null } : p);
+  update({ players });
+}
+
+/**
+ * 开始游戏：始终可点击，未分配座位进入局内后为未知身份。SPEC §4.1 Step4 / §4.2
+ * 同时把本局姓名并入姓名池并记录为上次名单（SPEC §11.2）。
+ */
+function startGame() {
+  commitNamesToPool();
+  const entry = {
+    day: state.day,
+    phase: state.phase,
+    type: 'system',
+    actor: null,
+    targets: [],
+    text: '游戏开始',
+    result: null,
+    ts: Date.now(),
+  };
+  identitySelectedSeat = null;
+  loverPairMode = false;
+  loverPairFirstSeat = null;
+  update({ screen: 'game', log: [...state.log, entry] });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -879,8 +1130,8 @@ function handleAppClick(e) {
     case 'goto-setup1':      gotoScreen('setup1'); break;
     case 'goto-setup2':      gotoScreen('setup2'); break;
     case 'goto-setup3':      gotoScreen('setup3'); break;
-    case 'goto-setup4':      gotoScreen('setup4'); break;
-    case 'goto-game':        commitNamesToPool(); gotoScreen('game'); break;
+    case 'goto-setup4':      enterSetup4(); break;
+    case 'goto-game':        gotoScreen('game'); break;
     case 'goto-log':         gotoScreen('log'); break;
     case 'undo':              undo(); break;
     case 'apply-last-roster':   applyLastRoster(); break;
@@ -893,6 +1144,12 @@ function handleAppClick(e) {
     case 'toggle-rule':         setRule(el.dataset.rule, el.checked); break;
     case 'set-witch-self-save': setRule('witchSelfSave', el.dataset.value); break;
     case 'toggle-setting':      setSetting(el.dataset.setting, el.checked); break;
+    case 'select-seat4':      selectSeat4(Number(el.dataset.seat)); break;
+    case 'assign-role4':      assignRole4(el.dataset.role); break;
+    case 'clear-role4':       clearRole4(Number(el.dataset.seat)); break;
+    case 'assign-random-roles': randomAssignRemainingRoles(); break;
+    case 'toggle-lover-mode': toggleLoverMode(); break;
+    case 'start-game':        startGame(); break;
     default: break;
   }
 }
