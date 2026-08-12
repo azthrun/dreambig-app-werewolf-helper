@@ -614,6 +614,11 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .theme-switch { display: flex; gap: var(--space-1); }
 .btn-sm { min-height: 32px; padding: 0 var(--space-2); font-size: 12px; }
 .btn-ghost.is-active { background: var(--color-neutral-300); }
+.btn-secondary.is-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-100);
+  color: var(--color-accent-700);
+}
 
 .field-row {
   display: flex;
@@ -715,7 +720,46 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
 /* ══════════════════════════════════════════════════════════════════
-   TODO —— 局内布局区块（夜晚/白天流程内容见票 #11–#13）
+   夜晚步骤面板                                SPEC §4.2 / §9 / §12.1
+   ══════════════════════════════════════════════════════════════════ */
+.phase-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 2px solid var(--color-divider);
+}
+.phase-step-header { display: flex; flex-direction: column; gap: var(--space-1); }
+.phase-step-title { margin: 0; font-size: 16px; }
+.phase-step-instruction { margin: 0; font-size: 13px; color: var(--color-neutral-600); }
+.phase-step-actions { display: flex; gap: var(--space-2); }
+.phase-step-actions .btn { flex: 1 1 auto; }
+.phase-step-dawn { align-items: stretch; }
+
+.step-death-line { margin: 0; font-size: 14px; font-weight: 700; }
+
+.step-info-answer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+.answer-text { font-size: 20px; font-weight: 700; }
+.answer-text-lg { font-size: 28px; }
+
+.witch-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* 技能状态芯片改为可点击按钮，用于手动修正（SPEC §6） */
+.skill-chip-toggle {
+  border: 2px solid var(--color-divider);
+  background: var(--color-neutral-100);
+  font: inherit;
+  cursor: pointer;
+}
+.skill-chip-toggle:hover { background: var(--color-neutral-200); }
+
+/* ══════════════════════════════════════════════════════════════════
+   TODO —— 局内布局区块（白天流程内容见票 #12–#13）
    ══════════════════════════════════════════════════════════════════
    · .log-group / .log-entry / .filter-chip（SPEC §16）
    ══════════════════════════════════════════════════════════════════ */
