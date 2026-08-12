@@ -10,14 +10,15 @@
  * 状态容器（唯一写入口 / 撤销 / 版本化持久化）、屏幕路由、设置向导
  * 全部四步（人数与角色牌 #7、玩家名单与姓名池 #8、夜晚顺序与计时 #8、
  * 分配身份与开局 #9）、局内玩家网格与死亡标记（#10）、夜晚流程引导 / 技能
- * 追踪 / 信息展示（#11）与主题应用已实现。白天流程、计时器、日志、战报等
- * 留给 #12–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
+ * 追踪 / 信息展示（#11）、天亮结算 / 死亡触发队列 / 警报通道（#12）与主题
+ * 应用已实现。计时器、日志、战报、随机首发言与其余白天主动行为等留给
+ * #13–#17，此处仅提供可路由到达的最小占位屏，不实现其内容。
  */
 
 import {
   ROLES, ROLE_MAP, WOLF_ROLE_IDS, STEP_META, DEFAULT_NIGHT_ORDER,
   DEATH_REASONS, PRESETS, DEFAULT_RULES, DEFAULT_SETTINGS,
-  CAMP, CAMP_NAME,
+  ABNORMAL_DEATH_REASONS, CAMP, CAMP_NAME,
 } from './roles.js';
 
 import {
@@ -59,6 +60,9 @@ const STEP_LOG_VERB = {
   cupid: '连接', magician: '交换', seer: '查验', psychic: '查验',
   fox: '查验', gravekeeper: '查验', bear: '判定',
 };
+
+/** 引擎警告类型中接入警报通道的子集（SPEC §10.3）。女巫同夜双药不在通道范围内。 */
+const ALERT_WARNING_TYPES = new Set(['doubleProtect', 'guardRepeat', 'witchSelfSave']);
 
 const DAY_TIMER_STEP = 30;
 const DAY_TIMER_MIN = 30;
@@ -116,6 +120,7 @@ function createInitialState() {
     day: 1,
     phase: 'night',
     stepIndex: 0,
+    daySubPhase: null,          // 'deathReview' | 'triggers' | 'main'，白天子阶段（SPEC §4.3 / §5.4）
     nightActions: {},
     lastGuardTarget: null,
     pendingDeaths: [],
@@ -130,7 +135,7 @@ function createInitialState() {
     },
     log: [],
     history: [],
-    alert: null,
+    alertQueue: [],              // 待呈现的警报队列，一次一条（SPEC §10.2 —— 常驻至法官点击「知道了」）
   };
 }
 
@@ -187,11 +192,27 @@ function update(patch, opts = {}) {
 /** 撤销至上一快照。SPEC §8.5 */
 function undo() {
   if (!state.history.length) return;
-  const restored = state.history[state.history.length - 1];
+  const restored = normalizeLoadedState(state.history[state.history.length - 1]);
   const remaining = state.history.slice(0, -1);
   state = { ...restored, history: remaining };
   saveGame(state);
   render();
+}
+
+/**
+ * 补齐历史存档中可能缺失的字段默认值，避免读取旧结构存档（或撤销回旧快照）时
+ * 因字段缺失而崩溃。不匹配 STATE_VERSION 的存档已由 storage.js 整体丢弃，
+ * 这里处理的是同版本内新增字段的向后兼容。
+ */
+function normalizeLoadedState(saved) {
+  if (!saved) return saved;
+  return {
+    ...saved,
+    alertQueue: saved.alertQueue ?? [],
+    daySubPhase: saved.daySubPhase ?? null,
+    pendingDeaths: saved.pendingDeaths ?? [],
+    triggerQueue: saved.triggerQueue ?? [],
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -551,8 +572,30 @@ function columnsForCount(n) {
 /** 局内主界面：固定控制区 + 步骤区 + 可滚动玩家网格 + 撤销条。SPEC §12.1 */
 function renderGame() {
   renderGameHeader();
+  renderAlertBanner();
   renderPhasePanel();
   renderPlayerGrid();
+}
+
+/** 常驻警告横幅：不自动消失，需法官点击「知道了」确认。SPEC §10.2 */
+function renderAlertBanner() {
+  const host = document.getElementById('alert-banner');
+  if (!host) return;
+  const current = state.alertQueue[0];
+  if (!current) {
+    host.hidden = true;
+    host.innerHTML = '';
+    return;
+  }
+  host.hidden = false;
+  host.innerHTML = `
+    <div class="banner-inline" role="alert">
+      <span>⚠ ${escapeText(current.text)}</span>
+      <div class="banner-actions">
+        <button type="button" class="btn btn-secondary btn-sm" data-action="dismiss-alert">知道了</button>
+      </div>
+    </div>
+  `;
 }
 
 /** 固定控制区：阶段标题 + 撤销 / 日志 / 长按结束。SPEC §12.1（计时器 / 阵营计数见 #11–#14） */
@@ -594,8 +637,16 @@ function renderPhasePanel() {
     return;
   }
 
-  if (state.phase !== 'night') {
-    panel.innerHTML = `<p class="note">白天流程见票 #12–#13。</p>`;
+  if (state.phase === 'day') {
+    if (state.daySubPhase === 'deathReview') {
+      panel.innerHTML = renderDeathReviewPanel();
+      return;
+    }
+    if (state.daySubPhase === 'triggers') {
+      panel.innerHTML = renderTriggerPanel();
+      return;
+    }
+    panel.innerHTML = `<p class="note">死亡与触发队列已处理。随机首发言、发言计时与白天主动行为见票 #13。</p>`;
     return;
   }
 
@@ -611,6 +662,70 @@ function renderPhasePanel() {
   }
 
   panel.innerHTML = renderNightStepHtml(steps[state.stepIndex]);
+}
+
+/** 天亮结算 —— 死亡提案列表，法官可增删后确认。SPEC §4.3 / §5.1 */
+function renderDeathReviewPanel() {
+  const deaths = state.pendingDeaths;
+  const rows = deaths.length
+    ? deaths.map(d => `
+        <div class="death-proposal-row">
+          <span class="tag tag-accent">${d.seat}号</span>
+          <span class="death-proposal-explanation">${escapeText(d.explanation)}</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="remove-pending-death" data-seat="${d.seat}" aria-label="移除${d.seat}号死亡提案">✕</button>
+        </div>
+      `).join('')
+    : '<p class="note">本回合无死亡</p>';
+
+  return `
+    <div class="phase-step phase-step-dawn">
+      <div class="phase-step-header">
+        <h2 class="phase-step-title">天亮结算</h2>
+        <p class="phase-step-instruction">核对死亡名单；点选下方存活玩家可添加，✕ 可移除</p>
+      </div>
+      <div class="death-proposal-list">${rows}</div>
+      <div class="phase-step-actions">
+        <button type="button" class="btn btn-primary btn-block" data-action="confirm-pending-deaths">确认死亡</button>
+      </div>
+    </div>
+  `;
+}
+
+/** 死亡触发队列 —— 一次一条呈现。SPEC §5.4 */
+function renderTriggerPanel() {
+  const current = state.triggerQueue[0];
+  if (!current) return '';
+
+  if (current.type === 'shot') {
+    return `
+      <div class="phase-step">
+        <div class="phase-step-header">
+          <h2 class="phase-step-title">${escapeText(current.label)}</h2>
+          <p class="phase-step-instruction">点选下方玩家网格中的目标，或跳过</p>
+        </div>
+        <div class="phase-step-actions">
+          <button type="button" class="btn btn-secondary btn-block" data-action="skip-trigger">跳过</button>
+        </div>
+      </div>
+    `;
+  }
+
+  if (current.type === 'idiotReveal') {
+    return `
+      <div class="phase-step">
+        <div class="phase-step-header">
+          <h2 class="phase-step-title">${escapeText(current.label)}</h2>
+          <p class="phase-step-instruction">翻牌后不死亡，但失去投票权</p>
+        </div>
+        <div class="phase-step-actions">
+          <button type="button" class="btn btn-primary" data-action="resolve-idiot-reveal">翻牌免死</button>
+          <button type="button" class="btn btn-secondary" data-action="skip-trigger">跳过</button>
+        </div>
+      </div>
+    `;
+  }
+
+  return '';
 }
 
 /** 当前活跃夜晚步骤所对应的角色（座位已知的行动者）。 */
@@ -753,8 +868,9 @@ function renderPlayerGrid() {
   if (!grid) return;
   const columns = columnsForCount(state.playerCount);
   grid.dataset.columns = String(columns);
-  const { selectable, selected } = activeNightTargetSeats();
-  grid.innerHTML = state.players.map(p => renderPlayerCard(p, columns, selectable, selected)).join('');
+  const { selectable, selected } = activeSelectableSeats();
+  const pulsing = alertPulseSeats();
+  grid.innerHTML = state.players.map(p => renderPlayerCard(p, columns, selectable, selected, pulsing)).join('');
 
   // 长按 550ms 标记阵亡，仅绑定于折叠态的存活卡片。SPEC §8.3
   grid.querySelectorAll('button.player-card:not(.is-dead)').forEach(el => {
@@ -763,33 +879,51 @@ function renderPlayerGrid() {
 }
 
 /**
- * 当前是否处于夜晚步骤的目标选择状态，返回可点选 / 已选中的座位集合。
- * SPEC §4.2 / §8.3 —— 点选目标座位时卡片高亮。
+ * 当前是否处于需要点选目标的状态（夜晚步骤 / 天亮死亡提案增补 / 开枪触发），
+ * 返回可点选 / 已选中的座位集合。SPEC §4.2 / §4.3 / §5.4 / §8.3
  */
-function activeNightTargetSeats() {
+function activeSelectableSeats() {
   const empty = { selectable: new Set(), selected: new Set() };
-  if (state.phase !== 'night' || loverPairMode) return empty;
-  const steps = activeNightSteps(state);
-  const stepId = steps[state.stepIndex];
-  if (!stepId) return empty;
+  if (loverPairMode) return empty;
 
-  if (stepId === 'witch') {
-    if (witchChoice !== 'poison') return empty;
+  if (state.phase === 'night') {
+    const steps = activeNightSteps(state);
+    const stepId = steps[state.stepIndex];
+    if (!stepId) return empty;
+
+    if (stepId === 'witch') {
+      if (witchChoice !== 'poison') return empty;
+      const alive = new Set(state.players.filter(p => p.alive).map(p => p.seat));
+      return { selectable: alive, selected: new Set(witchPoisonTarget != null ? [witchPoisonTarget] : []) };
+    }
+
+    const meta = STEP_META[stepId];
+    if (!meta || meta.targets === 0) return empty;
     const alive = new Set(state.players.filter(p => p.alive).map(p => p.seat));
-    return { selectable: alive, selected: new Set(witchPoisonTarget != null ? [witchPoisonTarget] : []) };
+    return { selectable: alive, selected: new Set(nightStepTargets) };
   }
 
-  const meta = STEP_META[stepId];
-  if (!meta || meta.targets === 0) return empty;
-  const alive = new Set(state.players.filter(p => p.alive).map(p => p.seat));
-  return { selectable: alive, selected: new Set(nightStepTargets) };
+  if (state.phase === 'day' && state.daySubPhase === 'deathReview') {
+    const alive = new Set(state.players.filter(p => p.alive).map(p => p.seat));
+    const pending = new Set(state.pendingDeaths.map(d => d.seat));
+    const selectable = new Set([...alive].filter(s => !pending.has(s)));
+    return { selectable, selected: pending };
+  }
+
+  if (state.phase === 'day' && state.daySubPhase === 'triggers' && state.triggerQueue[0]?.type === 'shot') {
+    const alive = new Set(state.players.filter(p => p.alive).map(p => p.seat));
+    return { selectable: alive, selected: new Set() };
+  }
+
+  return empty;
 }
 
-/** 单张玩家卡片：折叠 / 展开态，按存活与人数密度分派。SPEC §12.2 / §8.3 */
-function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats = new Set()) {
+/** 单张玩家卡片：折叠 / 展开态，按存活与人数密度分派。SPEC §12.2 / §8.3 / §10.2 */
+function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats = new Set(), pulseSeats = new Set()) {
   const role = p.roleId ? ROLE_MAP[p.roleId] : null;
   const roleName = role ? role.name : '未知身份';
   const displayName = escapeText(p.name || `${p.seat}号`);
+  const pulseClass = pulseSeats.has(p.seat) ? ' is-pulse' : '';
 
   if (gameRoleEditSeat === p.seat) {
     return `
@@ -805,6 +939,8 @@ function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats
   }
 
   if (gameDeathPickerSeat === p.seat) {
+    const isPendingAdd = state.phase === 'day' && state.daySubPhase === 'deathReview';
+    const chipAction = isPendingAdd ? 'add-pending-death' : 'mark-dead';
     return `
       <div class="player-card player-card-expanded" data-seat="${p.seat}">
         <div class="player-card-expanded-header">
@@ -813,7 +949,7 @@ function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats
         </div>
         <div class="death-reason-chips">
           ${DEATH_REASONS.map(r => `
-            <button type="button" class="chip" data-action="mark-dead" data-seat="${p.seat}" data-reason="${escapeAttr(r)}">${escapeText(r)}</button>
+            <button type="button" class="chip" data-action="${chipAction}" data-seat="${p.seat}" data-reason="${escapeAttr(r)}">${escapeText(r)}</button>
           `).join('')}
         </div>
       </div>
@@ -838,7 +974,7 @@ function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats
       `;
     }
     return `
-      <button type="button" class="player-card is-dead" data-action="toggle-alive-expand" data-seat="${p.seat}">
+      <button type="button" class="player-card is-dead${pulseClass}" data-action="toggle-alive-expand" data-seat="${p.seat}">
         <span class="player-card-seat">${p.seat}号</span>
         <span class="player-card-name">${displayName}</span>
         <span class="player-card-role">${escapeText(roleName)}</span>
@@ -870,7 +1006,7 @@ function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats
 
   const isSelectable = selectableSeats.has(p.seat);
   const isSelected = selectedSeats.has(p.seat);
-  const targetClass = `${isSelectable ? ' is-selectable' : ''}${isSelected ? ' is-selected' : ''}`;
+  const targetClass = `${isSelectable ? ' is-selectable' : ''}${isSelected ? ' is-selected' : ''}${pulseClass}`;
   return `
     <button type="button" class="player-card${targetClass}" data-action="toggle-alive-expand" data-seat="${p.seat}">
       ${renderCardBodyByDensity(p, role, columns)}
@@ -1346,6 +1482,7 @@ function handleCardTap(seat) {
   }
 
   const player = state.players.find(p => p.seat === seat);
+
   if (state.phase === 'night' && player?.alive) {
     const steps = activeNightSteps(state);
     const stepId = steps[state.stepIndex];
@@ -1353,6 +1490,22 @@ function handleCardTap(seat) {
       selectStepTarget(seat, stepId);
       return;
     }
+  }
+
+  if (state.phase === 'day' && state.daySubPhase === 'deathReview' && player?.alive) {
+    const alreadyPending = state.pendingDeaths.some(d => d.seat === seat);
+    if (!alreadyPending) {
+      gameDeathPickerSeat = seat;
+      gameExpandedSeat = null;
+      render();
+      return;
+    }
+  }
+
+  if (state.phase === 'day' && state.daySubPhase === 'triggers' && player?.alive
+      && state.triggerQueue[0]?.type === 'shot') {
+    resolveShotTrigger(seat);
+    return;
   }
 
   gameDeathPickerSeat = null;
@@ -1475,6 +1628,7 @@ function confirmNightStep() {
   let nightActions = state.nightActions;
   let resultText = null;
   let logTargets = nightStepTargets;
+  let stepAlerts = [];
 
   switch (stepId) {
     case 'wolfkill': {
@@ -1484,6 +1638,9 @@ function confirmNightStep() {
     }
     case 'guard': {
       const target = nightStepTargets[0];
+      stepAlerts = validateAction(state, 'guard', { target })
+        .filter(w => ALERT_WARNING_TYPES.has(w.type))
+        .map(w => ({ ...w, seat: target }));
       nightActions = { ...nightActions, guardTarget: target };
       break;
     }
@@ -1547,17 +1704,27 @@ function confirmNightStep() {
     case 'bear': {
       const info = computeStepInfo(state, 'bear', []);
       resultText = info.known ? info.result : '未知身份 — 请手动判断';
+      if (info.known && info.growl && actorSeat != null) {
+        stepAlerts = [{ type: 'bearGrowl', seat: actorSeat, text: `${actorSeat}号（熊）应当咆哮` }];
+      }
       break;
     }
     default: break;
   }
 
   const entry = buildStepLogEntry(stepId, actorSeat, logTargets, resultText);
-  const patch = { players, nightActions, log: [...state.log, entry], stepIndex: state.stepIndex + 1 };
+  const { alertQueue, logAppend } = appendAlerts(stepAlerts);
+  const patch = {
+    players, nightActions,
+    log: [...state.log, entry, ...logAppend],
+    stepIndex: state.stepIndex + 1,
+    alertQueue,
+  };
   if (stepId === 'guard') patch.lastGuardTarget = nightStepTargets[0];
 
   resetNightStepUiState();
   update(patch);
+  if (stepAlerts.length) notifyAlert();
 }
 
 /** 女巫步骤确认：解药 / 毒药 / 不使用，消耗对应技能槽。SPEC §6 / §9 */
@@ -1569,12 +1736,14 @@ function confirmWitchStep() {
   let targets = [];
   let resultText = null;
   let players = state.players;
+  let warnings = [];
 
   if (witchChoice === 'save') {
     if (nightDeathSeat == null) return;
     witchAction = { type: 'save', target: nightDeathSeat };
     targets = [nightDeathSeat];
     resultText = `${nightDeathSeat}号`;
+    warnings = validateAction(state, 'witch', { type: 'save', target: nightDeathSeat });
     if (actorSeat != null) {
       players = players.map(p =>
         p.seat === actorSeat ? { ...p, skills: { ...p.skills, antidote: false } } : p);
@@ -1584,6 +1753,7 @@ function confirmWitchStep() {
     witchAction = { type: 'poison', target: witchPoisonTarget };
     targets = [witchPoisonTarget];
     resultText = `${witchPoisonTarget}号`;
+    warnings = validateAction(state, 'witch', { type: 'poison', target: witchPoisonTarget });
     if (actorSeat != null) {
       players = players.map(p =>
         p.seat === actorSeat ? { ...p, skills: { ...p.skills, poison: false } } : p);
@@ -1601,13 +1771,18 @@ function confirmWitchStep() {
     actor: actorSeat, targets, text, result: resultText, ts: Date.now(),
   };
 
+  const stepAlerts = warnings.filter(w => ALERT_WARNING_TYPES.has(w.type)).map(w => ({ ...w, seat: actorSeat }));
+  const { alertQueue, logAppend } = appendAlerts(stepAlerts);
+
   resetNightStepUiState();
   update({
     players,
     nightActions: { ...state.nightActions, witchAction },
-    log: [...state.log, entry],
+    log: [...state.log, entry, ...logAppend],
     stepIndex: state.stepIndex + 1,
+    alertQueue,
   });
+  if (stepAlerts.length) notifyAlert();
 }
 
 /** 女巫步骤：选择解药 / 毒药 / 不使用。选择毒药后进入目标点选。SPEC §9 */
@@ -1632,23 +1807,207 @@ function skipNightStep() {
   update({ stepIndex: state.stepIndex + 1, log: [...state.log, entry] });
 }
 
-/** 天亮入口：全部步骤完成后显示。死亡结算接入见 #12。SPEC §4.2 */
+/**
+ * 天亮入口：全部夜晚步骤完成后调用结算引擎，产出死亡提案供法官核对确认。
+ * SPEC §4.2 / §4.3 / §5.1
+ */
 function endNight() {
+  const { deaths, warnings } = resolveDawn(state);
   const entry = {
     day: state.day, phase: state.phase, type: 'system',
     actor: null, targets: [], text: '天亮了', result: null, ts: Date.now(),
   };
+
+  const stepAlerts = warnings.filter(w => ALERT_WARNING_TYPES.has(w.type));
+  const { alertQueue, logAppend } = appendAlerts(stepAlerts);
+
   resetNightStepUiState();
-  update({ phase: 'day', stepIndex: 0, log: [...state.log, entry] });
+  update({
+    phase: 'day',
+    stepIndex: 0,
+    daySubPhase: 'deathReview',
+    pendingDeaths: deaths,
+    alertQueue,
+    log: [...state.log, entry, ...logAppend],
+  });
+  if (stepAlerts.length) notifyAlert();
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 流程 —— 白天（#13 范围，暂未实现）
+// 流程 —— 白天：死亡结算确认 + 触发队列                SPEC §4.3 / §5.4
+// 随机首发言 / 发言计时 / 骑士决斗 / 自爆 / 放逐 / 进入下一夜 —— #13 范围
 // ══════════════════════════════════════════════════════════════════
 
-function confirmPendingDeaths()  { throw new Error('未实现'); }  // SPEC §4.3
-function processTriggerQueue()   { throw new Error('未实现'); }  // SPEC §5.4
-function resolveTrigger(payload) { throw new Error('未实现'); }
+/** 死因是否符合「白痴翻牌免死」条件：仅死因为被投票且未翻过牌。SPEC §5.4 */
+function isIdiotReveal(death) {
+  if (death.reason !== '被投票') return false;
+  const player = state.players.find(p => p.seat === death.seat);
+  const role = ROLE_MAP[player?.effectiveRoleId ?? player?.roleId];
+  return role?.deathTrigger === 'idiotReveal' && !player?.flags?.idiotRevealed;
+}
+
+/** 扫描一批死亡中因非常规死因被抑制开枪的猎人 / 狼王，产出警报通道条目。SPEC §5.4 / §10.3 */
+function detectSuppressedShots(deathsList, playersSnapshot) {
+  const alerts = [];
+  for (const d of deathsList) {
+    const player = playersSnapshot.find(p => p.seat === d.seat);
+    if (!player) continue;
+    const role = ROLE_MAP[player.effectiveRoleId ?? player.roleId];
+    if (role?.deathTrigger !== 'shot') continue;
+    if (player.skills?.shot === false) continue;
+    if (!ABNORMAL_DEATH_REASONS.includes(d.reason)) continue;
+    if (!state.rules?.abnormalDeathBlocksShot) continue;
+    alerts.push({
+      type: 'shotSuppressed', seat: d.seat,
+      text: `${d.seat}号（${role.name}）因${d.reason}死亡，开枪被抑制（当前规则）`,
+    });
+  }
+  return alerts;
+}
+
+/**
+ * 法官确认天亮死亡提案：落库死亡（白痴触发者不落库，仅入触发队列，SPEC §5.4）、
+ * 构建死亡触发队列、检测被抑制的开枪并接入警报通道。
+ */
+function confirmPendingDeaths() {
+  const deaths = state.pendingDeaths;
+  const now = Date.now();
+
+  const idiotSeats = new Set(deaths.filter(isIdiotReveal).map(d => d.seat));
+  const applied = deaths.filter(d => !idiotSeats.has(d.seat));
+  const reasonBySeat = new Map(applied.map(d => [d.seat, d.reason]));
+  const players = state.players.map(p =>
+    reasonBySeat.has(p.seat)
+      ? { ...p, alive: false, deathReason: reasonBySeat.get(p.seat), deathDay: state.day, deathPhase: state.phase }
+      : p);
+
+  const deathEntries = applied.map(d => ({
+    day: state.day, phase: state.phase, type: 'death', actor: null, targets: [d.seat],
+    text: `${d.seat}号 ${d.reason}`, result: null, ts: now,
+  }));
+
+  const triggerQueue = buildTriggerQueue({ ...state, players }, deaths);
+  const suppressedAlerts = detectSuppressedShots(deaths, players);
+  const { alertQueue, logAppend } = appendAlerts(suppressedAlerts);
+  const daySubPhase = triggerQueue.length ? 'triggers' : 'main';
+
+  update({
+    players,
+    pendingDeaths: [],
+    triggerQueue,
+    daySubPhase,
+    alertQueue,
+    log: [...state.log, ...deathEntries, ...logAppend],
+  });
+  if (suppressedAlerts.length) notifyAlert();
+}
+
+/** 死亡提案增删：移除一条法官不认可的引擎推算条目。SPEC §4.3 / §5.1 */
+function removePendingDeath(seat) {
+  update({ pendingDeaths: state.pendingDeaths.filter(d => d.seat !== seat) });
+}
+
+/** 死亡提案增删：法官手动添加一条死亡（点选存活玩家 → 选择死因）。SPEC §4.3 / §5.1 */
+function addPendingDeath(seat, reason) {
+  gameDeathPickerSeat = null;
+  if (state.pendingDeaths.some(d => d.seat === seat)) { render(); return; }
+  const explanation = `${seat}号 ${reason}（法官手动添加）`;
+  update({ pendingDeaths: [...state.pendingDeaths, { seat, reason, explanation }] });
+}
+
+/**
+ * 触发 / 白天行为产生的新死亡落库：应用存活状态、写入死亡日志、
+ * 回流殉情 / 魅惑连锁产生的触发继续入队（一次一条），检测被抑制的开枪。
+ * SPEC §5.1 步骤 7–9 / §5.4
+ */
+function applyDeathsFromTrigger(players, deathsList, extraLogEntries, remainingQueue) {
+  const now = Date.now();
+  const reasonBySeat = new Map(deathsList.map(d => [d.seat, d.reason]));
+  const updatedPlayers = players.map(p =>
+    reasonBySeat.has(p.seat)
+      ? { ...p, alive: false, deathReason: reasonBySeat.get(p.seat), deathDay: state.day, deathPhase: state.phase }
+      : p);
+
+  const deathEntries = deathsList.map(d => ({
+    day: state.day, phase: state.phase, type: 'death', actor: null, targets: [d.seat],
+    text: `${d.seat}号 ${d.reason}`, result: null, ts: now,
+  }));
+
+  const newTriggers = buildTriggerQueue({ ...state, players: updatedPlayers }, deathsList);
+  const suppressedAlerts = detectSuppressedShots(deathsList, updatedPlayers);
+  const { alertQueue, logAppend } = appendAlerts(suppressedAlerts);
+
+  const triggerQueue = [...remainingQueue, ...newTriggers];
+  const daySubPhase = triggerQueue.length ? 'triggers' : 'main';
+
+  update({
+    players: updatedPlayers,
+    triggerQueue,
+    daySubPhase,
+    alertQueue,
+    log: [...state.log, ...extraLogEntries, ...deathEntries, ...logAppend],
+  });
+  if (suppressedAlerts.length) notifyAlert();
+}
+
+/** 猎人 / 狼王开枪：点选目标座位 → 结算枪击死亡，回流殉情 / 魅惑连锁。SPEC §5.4 */
+function resolveShotTrigger(targetSeat) {
+  const current = state.triggerQueue[0];
+  if (!current || current.type !== 'shot') return;
+  const rest = state.triggerQueue.slice(1);
+  const shooter = state.players.find(p => p.seat === current.seat);
+  const shooterRole = ROLE_MAP[shooter?.effectiveRoleId ?? shooter?.roleId];
+  const players = state.players.map(p =>
+    p.seat === current.seat ? { ...p, skills: { ...p.skills, shot: false } } : p);
+
+  const shotEntry = {
+    day: state.day, phase: state.phase, type: 'skill', actor: current.seat,
+    targets: [targetSeat],
+    text: `${current.seat}号（${shooterRole?.name ?? ''}）开枪 → ${targetSeat}号`,
+    result: null, ts: Date.now(),
+  };
+
+  const { deaths } = cascadeDeaths({ ...state, players }, [{ seat: targetSeat, reason: '被枪' }]);
+  applyDeathsFromTrigger(players, deaths, [shotEntry], rest);
+}
+
+/** 白痴触发：翻牌免死，不死亡，仅置 idiotRevealed 并失去投票权。SPEC §5.4 */
+function resolveIdiotReveal() {
+  const current = state.triggerQueue[0];
+  if (!current || current.type !== 'idiotReveal') return;
+  const rest = state.triggerQueue.slice(1);
+  const players = state.players.map(p =>
+    p.seat === current.seat ? { ...p, flags: { ...p.flags, idiotRevealed: true } } : p);
+  const entry = {
+    day: state.day, phase: state.phase, type: 'skill', actor: current.seat, targets: [],
+    text: `${current.seat}号 翻牌免死，失去投票权`, result: null, ts: Date.now(),
+  };
+  const daySubPhase = rest.length ? 'triggers' : 'main';
+  update({ players, triggerQueue: rest, daySubPhase, log: [...state.log, entry] });
+}
+
+/** 跳过当前触发（选择不开枪 / 不翻牌）。开枪跳过同样消耗技能槽。SPEC §5.4 */
+function skipTrigger() {
+  const current = state.triggerQueue[0];
+  if (!current) return;
+  const rest = state.triggerQueue.slice(1);
+  let players = state.players;
+  let text;
+  if (current.type === 'shot') {
+    players = players.map(p => p.seat === current.seat ? { ...p, skills: { ...p.skills, shot: false } } : p);
+    text = `${current.label} → 选择不开枪`;
+  } else {
+    text = `${current.label} → 跳过`;
+  }
+  const entry = {
+    day: state.day, phase: state.phase, type: 'skill', actor: current.seat, targets: [],
+    text, result: null, ts: Date.now(),
+  };
+  const daySubPhase = rest.length ? 'triggers' : 'main';
+  update({ players, triggerQueue: rest, daySubPhase, log: [...state.log, entry] });
+}
+
+// ── 以下为 #13 范围，暂未实现 ──
 function startDuel()             { throw new Error('未实现'); }  // 骑士决斗
 function whiteWolfSelfDestruct() { throw new Error('未实现'); }  // 白狼王自爆带人
 function wolfSelfDestruct(seat)  { throw new Error('未实现'); }  // 普通狼人自爆
@@ -1713,12 +2072,69 @@ function speechNext()               { throw new Error('未实现'); }
 function speechPrev()               { throw new Error('未实现'); }
 
 // ══════════════════════════════════════════════════════════════════
-// 警报通道（#12 范围，暂未实现）—— 视觉优先，震动为渐进增强。SPEC §10
+// 警报通道 —— 视觉优先，震动 / 提示音为渐进增强，绝不依赖。SPEC §10
 // ══════════════════════════════════════════════════════════════════
 
-/** 常驻警告横幅，需法官点击「知道了」确认，不自动消失。 */
-function raiseAlert(type, seat, text) { throw new Error('未实现'); }
-function dismissAlert()               { throw new Error('未实现'); }
+/**
+ * 把警告对象接入警报通道：追加到 alertQueue，并生成对应的 warning 类型日志
+ * 条目（SPEC §10 —— 警报与死亡均写入日志）。调用方负责把返回的 alertQueue
+ * 与 logAppend 合入自身的 update() 调用，使警报与触发它的状态变更落入
+ * 同一次撤销快照。
+ * @param {Array<{type:string, seat?:number|number[], text:string}>} alerts
+ */
+function appendAlerts(alerts) {
+  if (!alerts.length) return { alertQueue: state.alertQueue, logAppend: [] };
+  const now = Date.now();
+  const logAppend = alerts.map(a => ({
+    day: state.day, phase: state.phase, type: 'warning', actor: null,
+    targets: a.seat != null ? [].concat(a.seat) : [], text: a.text, result: null, ts: now,
+  }));
+  return { alertQueue: [...state.alertQueue, ...alerts], logAppend };
+}
+
+/** 常驻警告横幅，需法官点击「知道了」确认，不自动消失。SPEC §10.2 */
+function dismissAlert() {
+  update({ alertQueue: state.alertQueue.slice(1) });
+}
+
+/** 新警报到达时的渐进增强通知：卡片脉冲高亮由渲染层依 alertQueue 处理。 */
+function notifyAlert() {
+  triggerVibration();
+  playAlertSound();
+}
+
+/** 可用时调用震动，绝不依赖（iOS Safari 不支持 Vibration API）。SPEC §10.1 / §10.2 */
+function triggerVibration() {
+  if (typeof navigator === 'undefined' || !('vibrate' in navigator)) return;
+  try { navigator.vibrate([120, 60, 120]); } catch { /* 渐进增强，忽略失败 */ }
+}
+
+let alertAudioCtx = null;
+
+/** 提示音：设置项，默认关闭 —— 牌桌声响可能泄露信息。SPEC §10.2 */
+function playAlertSound() {
+  if (!state.settings.soundEnabled) return;
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    alertAudioCtx ??= new AudioCtx();
+    const ctx = alertAudioCtx;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = 880;
+    gain.gain.value = 0.15;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.18);
+  } catch { /* 渐进增强，忽略失败 */ }
+}
+
+/** 当前警报横幅关联的座位集合，供玩家网格脉冲高亮。SPEC §10.2 */
+function alertPulseSeats() {
+  const current = state.alertQueue[0];
+  if (!current || current.seat == null) return new Set();
+  return new Set([].concat(current.seat));
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 手势
@@ -1983,6 +2399,12 @@ function handleAppClick(e) {
     case 'skip-night-step':    skipNightStep(); break;
     case 'witch-choice':       chooseWitchAction(el.dataset.choice); break;
     case 'end-night':          endNight(); break;
+    case 'confirm-pending-deaths': confirmPendingDeaths(); break;
+    case 'remove-pending-death':   removePendingDeath(Number(el.dataset.seat)); break;
+    case 'add-pending-death':      addPendingDeath(Number(el.dataset.seat), el.dataset.reason); break;
+    case 'skip-trigger':           skipTrigger(); break;
+    case 'resolve-idiot-reveal':   resolveIdiotReveal(); break;
+    case 'dismiss-alert':          dismissAlert(); break;
     default: break;
   }
 }
@@ -2073,7 +2495,7 @@ function registerServiceWorker() { throw new Error('未实现'); }
 // ══════════════════════════════════════════════════════════════════
 
 function boot() {
-  const saved = loadGame();
+  const saved = normalizeLoadedState(loadGame());
   const summary = pendingGameSummary();
 
   if (saved && summary) {
