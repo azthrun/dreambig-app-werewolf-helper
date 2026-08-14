@@ -157,6 +157,14 @@ function createInitialState() {
   };
 }
 
+/** 依角色技能槽建立初始 skills 对象：每个技能键为 true（未使用/可用）。roleId 为空则返回 {}。 */
+function initSkills(roleId) {
+  const skills = {};
+  const role = roleId ? ROLE_MAP[roleId] : null;
+  for (const key of role?.skills ?? []) skills[key] = true;
+  return skills;
+}
+
 /** 建立空白玩家。SPEC §3.2 —— roleId 为 null 即「未知身份」，渐进填充见 §8.4 */
 function createPlayer(seat) {
   return {
@@ -1784,14 +1792,14 @@ function assignRole4(roleId) {
   if (identitySelectedSeat == null) return;
   const seat = identitySelectedSeat;
   const players = state.players.map(p =>
-    p.seat === seat ? { ...p, roleId, effectiveRoleId: roleId } : p);
+    p.seat === seat ? { ...p, roleId, effectiveRoleId: roleId, skills: initSkills(roleId) } : p);
   identitySelectedSeat = null;
   update({ players });
 }
 
 function clearRole4(seat) {
   const players = state.players.map(p =>
-    p.seat === seat ? { ...p, roleId: null, effectiveRoleId: null } : p);
+    p.seat === seat ? { ...p, roleId: null, effectiveRoleId: null, skills: {} } : p);
   identitySelectedSeat = null;
   update({ players });
 }
@@ -1815,7 +1823,7 @@ function randomAssignRemainingRoles() {
     const roleId = pool[i];
     if (roleId == null) return p;
     i++;
-    return { ...p, roleId, effectiveRoleId: roleId };
+    return { ...p, roleId, effectiveRoleId: roleId, skills: initSkills(roleId) };
   });
   identitySelectedSeat = null;
   update({ players });
@@ -2026,15 +2034,19 @@ function cancelRoleEditGame() {
 function assignRoleGame(roleId) {
   if (gameRoleEditSeat == null) return;
   const seat = gameRoleEditSeat;
+  // 局内「修改身份」可能是对同一身份的重新确认（而非真正更换）——此时保留已消耗的
+  // 技能状态，避免误将已用的解药/开枪等悄悄恢复为可用。仅真正更换身份时才重建 skills。
   const players = state.players.map(p =>
-    p.seat === seat ? { ...p, roleId, effectiveRoleId: roleId } : p);
+    p.seat === seat
+      ? { ...p, roleId, effectiveRoleId: roleId, skills: roleId === p.roleId ? p.skills : initSkills(roleId) }
+      : p);
   gameRoleEditSeat = null;
   update({ players });
 }
 
 function clearRoleGame(seat) {
   const players = state.players.map(p =>
-    p.seat === seat ? { ...p, roleId: null, effectiveRoleId: null } : p);
+    p.seat === seat ? { ...p, roleId: null, effectiveRoleId: null, skills: {} } : p);
   gameRoleEditSeat = null;
   update({ players });
 }
@@ -2062,7 +2074,7 @@ function selectStepTarget(seat, stepId) {
     const role = roleForNightStep(stepId);
     if (role) {
       players = players.map(p =>
-        p.seat === seat ? { ...p, roleId: role.id, effectiveRoleId: role.id } : p);
+        p.seat === seat ? { ...p, roleId: role.id, effectiveRoleId: role.id, skills: initSkills(role.id) } : p);
     }
   }
 
