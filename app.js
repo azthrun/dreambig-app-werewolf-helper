@@ -2895,7 +2895,7 @@ function handleTimerExpired() {
   const seat = state.timer.mode === 'speech' ? state.timer.speechSeat : undefined;
   const { alertQueue, logAppend } = appendAlerts([{ type: 'timerExpired', seat, text: '计时时间到' }]);
   update({
-    timer: { ...state.timer, running: false, endsAt: null, pausedRemaining: 0 },
+    timer: { ...state.timer, running: false, endsAt: null, pausedRemaining: null },
     alertQueue,
     log: [...state.log, ...logAppend],
   });
