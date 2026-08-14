@@ -114,7 +114,6 @@ export const DEFAULT_RULES = {
   witchSelfSave: 'firstNightOnly',    // 'never' | 'firstNightOnly' | 'always'
   guardRepeatAllowed: false,          // 禁止连守（仅警告，不阻断）
   abnormalDeathBlocksShot: true,      // 被毒 / 殉情 抑制开枪
-  witchBothPotions: false,            // 同夜不可双药
 };
 
 /** 默认设置（SPEC §3.3） */

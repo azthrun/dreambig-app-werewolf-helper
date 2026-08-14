@@ -566,24 +566,6 @@ test('validateAction: 女巫自救（never）→ 任何夜都警告', () => {
   assert(warnings.some(w => w.type === 'witchSelfSave'), `实际 ${JSON.stringify(warnings)}`);
 });
 
-test('validateAction: 女巫同夜双药（默认不可）→ 警告', () => {
-  const state = makeState({
-    playerCount: 3, roles: { 1: 'witch' },
-    nightActions: { witchAction: { type: 'save', target: 2 } },
-  });
-  const warnings = validateAction(state, 'witch', { type: 'poison', target: 3 });
-  assert(warnings.some(w => w.type === 'witchBothPotions'), `实际 ${JSON.stringify(warnings)}`);
-});
-
-test('validateAction: 女巫同夜双药（开关允许）→ 无警告', () => {
-  const state = makeState({
-    playerCount: 3, roles: { 1: 'witch' }, rules: { witchBothPotions: true },
-    nightActions: { witchAction: { type: 'save', target: 2 } },
-  });
-  const warnings = validateAction(state, 'witch', { type: 'poison', target: 3 });
-  assert(warnings.length === 0, `实际 ${JSON.stringify(warnings)}`);
-});
-
 // ── 汇总 ──────────────────────────────────────────────────────────
 const summary = document.createElement('p');
 summary.innerHTML = `<strong>通过 ${passed} · 失败 ${failed} · 待实现 ${pending}</strong>`;
