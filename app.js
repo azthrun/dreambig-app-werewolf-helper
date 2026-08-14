@@ -1547,6 +1547,8 @@ function toggleSkill(seat, key) {
     players = state.players.map(p => p.seat === seat ? { ...p, skills: { ...p.skills, [key]: used } } : p);
   }
   update({ players });
+  const label = SKILL_LABELS[key] ?? key;
+  showUndoBar(`已将 ${seat}号 的${label}标记为${!used ? '已使用' : '未使用'}`);
 }
 
 /** 技能槽是否已耗尽。白痴翻牌 / 狐狸失效记录于 flags，其余记录于 skills。SPEC §6 */
@@ -1824,15 +1826,18 @@ function randomAssignRemainingRoles() {
   shuffleCrypto(pool);
 
   let i = 0;
+  const assignedSeats = [];
   const players = state.players.map(p => {
     if (p.roleId != null) return p;
     const roleId = pool[i];
     if (roleId == null) return p;
     i++;
+    assignedSeats.push(p.seat);
     return { ...p, roleId, effectiveRoleId: roleId, skills: initSkills(roleId) };
   });
   identitySelectedSeat = null;
   update({ players });
+  if (assignedSeats.length) showUndoBar(`已随机分配 ${assignedSeats.length} 个座位的身份`);
 }
 
 /** Fisher–Yates，使用 crypto.getRandomValues。SPEC §4.1 Step4 */
