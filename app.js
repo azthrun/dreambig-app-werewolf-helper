@@ -142,6 +142,7 @@ function createInitialState() {
     pendingDeaths: [],
     triggerQueue: [],
     pendingNightAdvance: false,  // 狼人自爆等「白天立即结束」行为：触发队列处理完毕后自动进入下一夜
+    firstSpeakerDay: null,       // 已完成每日随机首发言抽取的天数（null 表示本局尚未抽取），用于避免同日多次自动重抽 SPEC §15
     timer: {
       mode: 'free',
       endsAt: null,
@@ -250,6 +251,7 @@ function normalizeLoadedState(saved) {
     nightSteps: saved.nightSteps ?? [],
     triggerQueue: saved.triggerQueue ?? [],
     pendingNightAdvance: saved.pendingNightAdvance ?? false,
+    firstSpeakerDay: saved.firstSpeakerDay ?? null,
     startedAt: saved.startedAt ?? null,
     winner: saved.winner ?? null,
   };
@@ -2858,7 +2860,7 @@ function advanceSpeech(step) {
 
 /** 天亮结算确认后（首次进入白天主阶段）按设置自动抽取每日随机首发言，写入日志。SPEC §15 */
 function withAutoFirstSpeaker(patch) {
-  if (patch.daySubPhase !== 'main' || state.daySubPhase === 'main' || !state.settings.randomFirstSpeaker) {
+  if (patch.daySubPhase !== 'main' || state.firstSpeakerDay === state.day || !state.settings.randomFirstSpeaker) {
     return patch;
   }
   const pick = pickFirstSpeaker({ ...state, players: patch.players ?? state.players });
@@ -2886,6 +2888,7 @@ function firstSpeakerPatch(pick, log) {
       speechSeat: pick.seat, speechDirection: pick.direction,
       running: false, endsAt: null, pausedRemaining: null,
     },
+    firstSpeakerDay: state.day,
     log: [...log, entry],
   };
 }
