@@ -295,17 +295,26 @@ export function computeStepInfo(state, stepId, targets = []) {
         if (cur == null) return { known: false };
         chain.push(cur);
       }
-      let hasWolf = false;
+      let anyUnknown = false;
       for (const seat of chain) {
         const role = roleOfSeat(state, seat);
-        if (!role) return { known: false };
-        if (role.camp === CAMP.WOLF) hasWolf = true;
+        if (!role) { anyUnknown = true; continue; }
+        if (role.camp === CAMP.WOLF) {
+          return {
+            known: true,
+            result: '有狼人',
+            hasWolf: true,
+            disablesFox: false,
+            chain,
+          };
+        }
       }
+      if (anyUnknown) return { known: false };
       return {
         known: true,
-        result: hasWolf ? '有狼人' : '无狼人',
-        hasWolf,
-        disablesFox: !hasWolf,
+        result: '无狼人',
+        hasWolf: false,
+        disablesFox: true,
         chain,
       };
     }
