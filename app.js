@@ -192,6 +192,15 @@ function cloneStateForHistory(s) {
 }
 
 /**
+ * 未解决的续接横幅仍在等待法官选择时，不覆盖 localStorage 中的旧存档（SPEC §11.1）。
+ * 一旦法官续接/放弃（清空 pendingResume），恢复正常持久化。
+ */
+function persistState() {
+  if (pendingResume) return;
+  saveGame(state);
+}
+
+/**
  * 唯一的状态写入口：推入全量快照 → 应用变更 → 持久化 → 重渲染。
  * SPEC §8.5 —— 快照必须是完整 GameState，而非仅 players + log。
  * @param {Partial<GameState>|((s:GameState)=>Partial<GameState>)} patch
@@ -212,7 +221,7 @@ function update(patch, opts = {}) {
     state.history = history;
   }
 
-  saveGame(state);
+  persistState();
   render();
 }
 
@@ -222,7 +231,7 @@ function undo() {
   const restored = normalizeLoadedState(state.history[state.history.length - 1]);
   const remaining = state.history.slice(0, -1);
   state = { ...restored, history: remaining };
-  saveGame(state);
+  persistState();
   render();
 }
 
@@ -1650,14 +1659,14 @@ function ensurePlayersSynced() {
     players.push(existing ?? createPlayer(seat));
   }
   state = { ...state, players };
-  saveGame(state);
+  persistState();
 }
 
 /** 输入框逐字符更新：不入历史栈、不整屏重渲染，避免打字时丢失焦点/光标。 */
 function setPlayerNameSilently(seat, name) {
   const players = state.players.map(p => (p.seat === seat ? { ...p, name } : p));
   state = { ...state, players };
-  saveGame(state);
+  persistState();
 }
 
 /** 姓名池芯片点击填入：直接写值 + 收起芯片面板，不整屏重渲染。 */
@@ -1924,6 +1933,7 @@ function startGame() {
     ts: Date.now(),
   };
   identitySelectedSeat = null;
+  pendingResume = null;
   resetGameUiState();
   update({
     screen: 'game',
