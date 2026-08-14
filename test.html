@@ -409,7 +409,13 @@ test('8. 魔术师交换 → 狼刀指向被重定向', () => {
 });
 
 test('9. 守卫连守违规 → 触发警告但不阻断', () => {
-  throw new Error('PENDING');
+  const state = makeState({
+    playerCount: 9, roles: { 1: 'guard' }, lastGuardTarget: 2,
+  });
+  const warnings = validateAction(state, 'guard', { target: 2 });
+  assert(warnings.length === 1 && warnings[0].type === 'guardRepeat',
+    `期望连守警告，实际 ${JSON.stringify(warnings)}`);
+  // 不阻断：仍返回校验结果而非抛出，法官可选择忽略警告继续操作
 });
 
 test('10a. 熊咆哮：邻座为狼 → true', () => {
@@ -558,14 +564,6 @@ test('computeStepInfo bearGrowl: 应咆哮', () => {
   const state = makeState({ playerCount: 3, roles: { 1: 'wolf', 2: 'bear', 3: 'villager' } });
   const info = computeStepInfo(state, 'bear', []);
   assert(info.known === true && info.growl === true, `实际 ${JSON.stringify(info)}`);
-});
-
-test('validateAction: 守卫连守 → 警告但不阻断', () => {
-  const state = makeState({
-    playerCount: 3, roles: { 1: 'guard' }, lastGuardTarget: 2,
-  });
-  const warnings = validateAction(state, 'guard', { target: 2 });
-  assert(warnings.length === 1 && warnings[0].type === 'guardRepeat', `实际 ${JSON.stringify(warnings)}`);
 });
 
 test('validateAction: 守卫更换目标不触发连守警告', () => {
