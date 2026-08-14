@@ -135,6 +135,7 @@ function createInitialState() {
     day: 1,
     phase: 'night',
     stepIndex: 0,
+    nightSteps: [],              // 本夜活跃步骤序列快照，夜晚开始时冻结，避免技能耗尽导致的重算错位
     daySubPhase: null,          // 'deathReview' | 'triggers' | 'main'，白天子阶段（SPEC §4.3 / §5.4）
     nightActions: {},
     lastGuardTarget: null,
@@ -237,6 +238,7 @@ function normalizeLoadedState(saved) {
     alertQueue: saved.alertQueue ?? [],
     daySubPhase: saved.daySubPhase ?? null,
     pendingDeaths: saved.pendingDeaths ?? [],
+    nightSteps: saved.nightSteps ?? [],
     triggerQueue: saved.triggerQueue ?? [],
     pendingNightAdvance: saved.pendingNightAdvance ?? false,
     startedAt: saved.startedAt ?? null,
@@ -747,7 +749,7 @@ function renderPhasePanel() {
     return;
   }
 
-  const steps = activeNightSteps(state);
+  const steps = state.nightSteps;
   if (state.stepIndex >= steps.length) {
     panel.innerHTML = `
       <div class="phase-step phase-step-dawn">
@@ -1337,7 +1339,7 @@ function activeSelectableSeats() {
   if (loverPairMode) return empty;
 
   if (state.phase === 'night') {
-    const steps = activeNightSteps(state);
+    const steps = state.nightSteps;
     const stepId = steps[state.stepIndex];
     if (!stepId) return empty;
 
@@ -1923,7 +1925,12 @@ function startGame() {
   };
   identitySelectedSeat = null;
   resetGameUiState();
-  update({ screen: 'game', log: [...state.log, entry], startedAt: Date.now() });
+  update({
+    screen: 'game',
+    log: [...state.log, entry],
+    startedAt: Date.now(),
+    nightSteps: activeNightSteps(state),
+  });
   requestWakeLock();
 }
 
@@ -1985,7 +1992,7 @@ function handleCardTap(seat) {
   if (dayActionMode) return;
 
   if (state.phase === 'night' && player?.alive) {
-    const steps = activeNightSteps(state);
+    const steps = state.nightSteps;
     const stepId = steps[state.stepIndex];
     if (stepId && (stepId === 'witch' ? witchChoice === 'poison' : STEP_META[stepId].targets > 0)) {
       selectStepTarget(seat, stepId);
@@ -2116,7 +2123,7 @@ function buildStepLogEntry(stepId, actorSeat, targets, resultText) {
 
 /** 确认当前夜晚步骤：落库行动 / 技能消耗，写入日志，推进步骤指针。SPEC §4.2 / §6 */
 function confirmNightStep() {
-  const steps = activeNightSteps(state);
+  const steps = state.nightSteps;
   const stepId = steps[state.stepIndex];
   if (!stepId) return;
 
@@ -2299,7 +2306,7 @@ function chooseWitchAction(choice) {
 
 /** 跳过当前夜晚步骤，不落库任何行动，仍写入日志留痕。SPEC §4.2 */
 function skipNightStep() {
-  const steps = activeNightSteps(state);
+  const steps = state.nightSteps;
   const stepId = steps[state.stepIndex];
   if (!stepId) return;
   const meta = STEP_META[stepId];
@@ -2655,11 +2662,13 @@ function endDay() {
 
 /** 推进到下一夜的共同落点：白天各流程（含普通狼人自爆的提前结束）最终都汇合于此。 */
 function startNextNight(players, log) {
+  const nextDay = state.day + 1;
   update({
     players,
-    day: state.day + 1,
+    day: nextDay,
     phase: 'night',
     stepIndex: 0,
+    nightSteps: activeNightSteps({ ...state, players, day: nextDay }),
     daySubPhase: null,
     nightActions: {},
     pendingDeaths: [],
