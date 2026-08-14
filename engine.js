@@ -122,6 +122,13 @@ function cascadeLoverAndCharm(state, pending) {
     const player = playersBySeat.get(seat);
     if (!player) continue;
 
+    // 白痴翻牌免死：该死亡会被判定为不死亡，不应向外连锁殉情 / 魅惑（SPEC §5.4）
+    const role = ROLE_MAP[player.effectiveRoleId ?? player.roleId];
+    const entry = pending.get(seat);
+    const isIdiotSaved = role?.deathTrigger === 'idiotReveal' &&
+      entry?.reason === '被投票' && !player.flags?.idiotRevealed;
+    if (isIdiotSaved) continue;
+
     // 步骤 7 · 情侣殉情
     if (player.loverSeat != null) {
       const loverSeat = player.loverSeat;
@@ -136,7 +143,6 @@ function cascadeLoverAndCharm(state, pending) {
     }
 
     // 步骤 8 · 狼美人魅惑连锁
-    const role = ROLE_MAP[player.effectiveRoleId ?? player.roleId];
     if (role?.id === 'wolfbeauty') {
       for (const p of state.players) {
         if (p.charmedBySeat === seat && p.alive && !pending.has(p.seat)) {

@@ -364,6 +364,22 @@ test('6. 情侣+猎人连锁：猎人被投→开枪击中情侣A→B殉情→B�
     `关闭抑制开关后期望狼王（5号）入队，实际 [${wolfkingQueue.map(t => `${t.seat}:${t.type}`)}]`);
 });
 
+test('6b. 白痴被投票翻牌免死 → 情侣不应殉情', () => {
+  const state = makeState({
+    playerCount: 9,
+    roles: { 3: 'idiot', 5: 'villager' },
+    lovers: [[3, 5]],
+  });
+
+  const { deaths } = cascadeDeaths(state, [{ seat: 3, reason: '被投票' }]);
+  // 白痴翻牌免死，未实际死亡：情侣（5号）不应被拉入殉情连锁
+  assertDeaths(deaths, [{ seat: 3, reason: '被投票' }]);
+
+  const queue = buildTriggerQueue(state, deaths);
+  assert(queue.length === 1 && queue[0].seat === 3 && queue[0].type === 'idiotReveal',
+    `期望白痴（3号）入翻牌免死队列，实际 [${queue.map(t => `${t.seat}:${t.type}`)}]`);
+});
+
 test('7. 狼美人死亡 → 被魅惑者殉情', () => {
   const state = makeState({
     playerCount: 9,
