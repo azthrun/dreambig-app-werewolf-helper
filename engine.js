@@ -357,7 +357,7 @@ export function bearGrowls(state) {
 
 /**
  * 校验夜晚行动是否违反规则开关，产出警告（不阻断）。SPEC §7 / §10.3
- * 涵盖：守卫连守、女巫自救、女巫同夜双药。
+ * 涵盖：守卫连守、女巫自救。
  *
  * @param {GameState} state
  * @param {string} stepId
@@ -384,15 +384,6 @@ export function validateAction(state, stepId, action) {
       const mode = state.rules.witchSelfSave;
       if (mode === 'never' || (mode === 'firstNightOnly' && state.day !== 1)) {
         warnings.push({ type: 'witchSelfSave', text: '女巫自救不符合当前规则设置' });
-      }
-    }
-
-    // 数据模型中 nightActions.witchAction 为单槽（SPEC §3.3），此处比较本夜
-    // 已记录的上一次行动与本次提议的行动，判断是否同夜使用了两瓶药。
-    if ((action.type === 'save' || action.type === 'poison') && !state.rules.witchBothPotions) {
-      const prior = state.nightActions.witchAction;
-      if (prior && prior.type && prior.type !== 'skip' && prior.type !== action.type) {
-        warnings.push({ type: 'witchBothPotions', text: '女巫同一夜使用了解药与毒药，当前规则不允许双药同用' });
       }
     }
   }

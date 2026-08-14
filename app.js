@@ -482,11 +482,6 @@ function renderSetup3() {
         </div>
 
         <div class="toggle-row">
-          <span class="toggle-row-label">女巫同夜可双药</span>
-          <label class="switch"><input type="checkbox" data-action="toggle-rule" data-rule="witchBothPotions" ${rules.witchBothPotions ? 'checked' : ''}></label>
-        </div>
-
-        <div class="toggle-row">
           <span class="toggle-row-label">每日随机首发言</span>
           <label class="switch"><input type="checkbox" data-action="toggle-setting" data-setting="randomFirstSpeaker" ${settings.randomFirstSpeaker ? 'checked' : ''}></label>
         </div>
