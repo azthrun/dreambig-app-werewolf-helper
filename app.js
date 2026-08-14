@@ -2176,8 +2176,18 @@ function confirmNightStep() {
     }
     case 'mechwolf': {
       const target = nightStepTargets[0];
+      const targetPlayer = players.find(p => p.seat === target);
+      const copiedRoleId = targetPlayer && targetPlayer.roleId != null
+        ? (targetPlayer.effectiveRoleId ?? targetPlayer.roleId)
+        : null;
       players = players.map(p =>
-        p.seat === actorSeat ? { ...p, skills: { ...p.skills, copy: false } } : p);
+        p.seat === actorSeat
+          ? {
+              ...p,
+              effectiveRoleId: copiedRoleId ?? p.effectiveRoleId,
+              skills: { ...p.skills, copy: false },
+            }
+          : p);
       nightActions = { ...nightActions, mechwolfTarget: target };
       break;
     }
