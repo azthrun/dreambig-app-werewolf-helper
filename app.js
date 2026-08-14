@@ -150,6 +150,7 @@ function createInitialState() {
       running: false,
       speechSeat: null,
       speechDirection: 1,
+      speechStarted: false,
     },
     log: [],
     history: [],
@@ -254,6 +255,7 @@ function normalizeLoadedState(saved) {
     firstSpeakerDay: saved.firstSpeakerDay ?? null,
     startedAt: saved.startedAt ?? null,
     winner: saved.winner ?? null,
+    timer: saved.timer ? { ...saved.timer, speechStarted: saved.timer.speechStarted ?? false } : saved.timer,
   };
 }
 
@@ -870,7 +872,7 @@ function renderDayMainPanel() {
 function renderFirstSpeakerBannerHtml() {
   const t = state.timer;
   if (t.mode !== 'speech' || t.speechSeat == null) return '';
-  if (t.running || t.pausedRemaining != null) return '';
+  if (t.running || t.pausedRemaining != null || t.speechStarted) return '';
   const dirLabel = t.speechDirection === 1 ? '顺时针' : '逆时针';
   return `
     <div class="banner-inline" role="status">
@@ -2776,6 +2778,7 @@ function setTimerMode(mode) {
       ...state.timer, mode, running: false, endsAt: null, pausedRemaining: null,
       speechSeat: mode === 'speech' ? fallbackSeat : state.timer.speechSeat,
       speechDirection: needsFallbackSeat ? 1 : state.timer.speechDirection,
+      speechStarted: needsFallbackSeat ? false : state.timer.speechStarted,
     },
   });
 }
@@ -2837,7 +2840,7 @@ function startSpeechTimer(seat, direction) {
     timer: {
       mode: 'speech', speechSeat: seat, speechDirection: direction,
       endsAt: Date.now() + state.settings.dayTimerDefault * 1000,
-      pausedRemaining: null, running: true,
+      pausedRemaining: null, running: true, speechStarted: true,
     },
   });
 }
@@ -2896,7 +2899,7 @@ function firstSpeakerPatch(pick, log) {
     timer: {
       ...state.timer, mode: 'speech',
       speechSeat: pick.seat, speechDirection: pick.direction,
-      running: false, endsAt: null, pausedRemaining: null,
+      running: false, endsAt: null, pausedRemaining: null, speechStarted: false,
     },
     firstSpeakerDay: state.day,
     log: [...log, entry],
