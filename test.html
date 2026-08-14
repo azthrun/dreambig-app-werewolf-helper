@@ -528,6 +528,16 @@ test('computeStepInfo foxCheck: 三连中有身份未知 → known:false', () =>
   assert(info.known === false, `实际 ${JSON.stringify(info)}`);
 });
 
+test('computeStepInfo foxCheck: 前两位未知、狼人在链尾 → 仍应确定为有狼人', () => {
+  const state = makeState({
+    playerCount: 5,
+    roles: { 1: 'fox', 4: 'wolf', 5: 'villager' }, // 座位2、3未分配，狼人在链末尾
+  });
+  const info = computeStepInfo(state, 'fox', [2]);
+  assert(info.known === true && info.hasWolf === true && info.disablesFox === false,
+    `实际 ${JSON.stringify(info)}`);
+});
+
 test('computeStepInfo bearGrowl: 应咆哮', () => {
   const state = makeState({ playerCount: 3, roles: { 1: 'wolf', 2: 'bear', 3: 'villager' } });
   const info = computeStepInfo(state, 'bear', []);
