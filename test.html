@@ -212,6 +212,41 @@ test('activeNightSteps: 死亡角色的步骤不出现', () => {
   assert(activeNightSteps(state).length === 0, '预言家已死不应出现查验步骤');
 });
 
+test('activeNightSteps: 身份未分配时，局型中配置的角色步骤仍应出现（SPEC §8.4 渐进填充）', () => {
+  const state = makeState({
+    playerCount: 3,
+    roles: {}, // 全员未知身份
+    roleCounts: { witch: 1, seer: 1, villager: 1 },
+    nightOrder: ['witch', 'seer'],
+  });
+  const steps = activeNightSteps(state);
+  assert(steps.includes('witch'), `身份未分配时女巫步骤应保留，实际 ${JSON.stringify(steps)}`);
+  assert(steps.includes('seer'), `身份未分配时预言家步骤应保留，实际 ${JSON.stringify(steps)}`);
+});
+
+test('activeNightSteps: 身份未分配但局型未配置该角色 → 步骤不出现', () => {
+  const state = makeState({
+    playerCount: 3,
+    roles: {},
+    roleCounts: { seer: 1, villager: 2 }, // 未配置女巫
+    nightOrder: ['witch', 'seer'],
+  });
+  const steps = activeNightSteps(state);
+  assert(!steps.includes('witch'), `局型未配置女巫时不应出现该步骤，实际 ${JSON.stringify(steps)}`);
+  assert(steps.includes('seer'), `局型配置的预言家步骤应保留，实际 ${JSON.stringify(steps)}`);
+});
+
+test('activeNightSteps: 已知行动者存在时，未知身份的其他座位不应影响原有跳过逻辑', () => {
+  const state = makeState({
+    playerCount: 3,
+    roles: { 1: 'witch' }, // 座位2、3 未知
+    roleCounts: { witch: 1, villager: 2 },
+    nightOrder: ['witch'],
+    players: { 1: { skills: { antidote: false, poison: false } } },
+  });
+  assert(activeNightSteps(state).length === 0, '已知女巫双药用尽时，仍应跳过步骤，不受未知座位影响');
+});
+
 test('campCounts: 仅统计存活且身份已知玩家，未知单独计数', () => {
   const state = makeState({
     playerCount: 5,
