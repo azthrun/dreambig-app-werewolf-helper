@@ -550,7 +550,7 @@ function renderSetup4() {
       ${[CAMP.WOLF, CAMP.GOD, CAMP.CIV].map(camp => `
         <div class="camp-group">
           <h3 class="camp-group-title">${CAMP_NAME[camp]}</h3>
-          ${ROLES.filter(r => r.camp === camp).map(r => {
+          ${ROLES.filter(r => r.camp === camp && (state.roleCounts[r.id] ?? 0) > 0).map(r => {
             const remaining = (state.roleCounts[r.id] ?? 0) - (assignedByRole[r.id] ?? 0);
             return `
               <button type="button" class="role-row-select" data-action="assign-role4" data-role="${r.id}">
@@ -1580,7 +1580,7 @@ function renderRoleEditPanelHtml(seat) {
       ${[CAMP.WOLF, CAMP.GOD, CAMP.CIV].map(camp => `
         <div class="camp-group">
           <h3 class="camp-group-title">${CAMP_NAME[camp]}</h3>
-          ${ROLES.filter(r => r.camp === camp).map(r => {
+          ${ROLES.filter(r => r.camp === camp && (state.roleCounts[r.id] ?? 0) > 0).map(r => {
             const remaining = (state.roleCounts[r.id] ?? 0) - (assignedByRole[r.id] ?? 0);
             return `
               <button type="button" class="role-row-select" data-action="assign-role-game" data-role="${r.id}">
