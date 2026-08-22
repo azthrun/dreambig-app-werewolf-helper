@@ -120,7 +120,6 @@ export const DEFAULT_RULES = {
 export const DEFAULT_SETTINGS = {
   soundEnabled: false,
   randomFirstSpeaker: true,
-  theme: 'auto',
   dayTimerDefault: 180,
   nightTimerDefault: 60,
 };

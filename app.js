@@ -47,7 +47,6 @@ const MIN_PLAYERS = 6;
 const MAX_PLAYERS = 20;
 
 const SCREENS = ['setup1', 'setup2', 'setup3', 'setup4', 'game', 'log', 'report'];
-const THEME_LABEL = { auto: '自动', light: '浅色', dark: '深色' };
 const WITCH_SELF_SAVE_LABEL = { never: '不可', firstNightOnly: '仅首夜', always: '始终' };
 
 /** 技能槽显示名（SPEC §6）。lastTarget 为连守记录，非消耗型，不作为状态芯片展示。 */
@@ -300,16 +299,6 @@ function renderSetup1() {
     </div>
   ` : '';
 
-  const themeHtml = `
-    <div class="theme-switch" role="group" aria-label="主题">
-      ${['auto', 'light', 'dark'].map(t => `
-        <button type="button"
-                class="btn btn-ghost btn-sm${state.settings.theme === t ? ' is-active' : ''}"
-                data-action="set-theme" data-theme="${t}">${THEME_LABEL[t]}</button>
-      `).join('')}
-    </div>
-  `;
-
   const rolesHtml = [CAMP.WOLF, CAMP.GOD, CAMP.CIV].map(camp => `
     <div class="camp-group">
       <h3 class="camp-group-title">${CAMP_NAME[camp]}</h3>
@@ -331,7 +320,6 @@ function renderSetup1() {
       ${bannerHtml}
       <header class="setup-header">
         <h1>局型配置</h1>
-        ${themeHtml}
       </header>
 
       <div class="field-row">
@@ -1638,11 +1626,6 @@ function discardPendingGame() {
   clearGame();
   pendingResume = null;
   update(() => createInitialState(), { snapshot: false });
-}
-
-function setTheme(theme) {
-  update({ settings: { ...state.settings, theme } }, { snapshot: false });
-  applyTheme(theme);
 }
 
 function gotoScreen(screen) {
@@ -3226,7 +3209,6 @@ function handleAppClick(e) {
     case 'role-dec':         adjustRoleCount(el.dataset.role, -1); break;
     case 'role-inc':         adjustRoleCount(el.dataset.role, 1); break;
     case 'resume-game':      resumeGame(); break;
-    case 'set-theme':        setTheme(el.dataset.theme); break;
     case 'goto-setup1':      gotoScreen('setup1'); break;
     case 'goto-setup2':      gotoScreen('setup2'); break;
     case 'goto-setup3':      gotoScreen('setup3'); break;
@@ -3389,16 +3371,6 @@ function releaseWakeLock() {
   sentinel?.release?.().catch(() => {});
 }
 
-/** 主题：auto / light / dark；局内默认暗色。SPEC §12.4 */
-function applyTheme(theme) {
-  const root = document.documentElement;
-  if (theme === 'light' || theme === 'dark') {
-    root.setAttribute('data-theme', theme);
-  } else {
-    root.removeAttribute('data-theme');
-  }
-}
-
 /** 注册 Service Worker。SPEC §13.2 */
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
@@ -3426,7 +3398,6 @@ function boot() {
 
   namePool = loadNames();
 
-  applyTheme(state.settings.theme);
   const app = document.getElementById('app');
   app.addEventListener('click', handleAppClick);
   app.addEventListener('input', handleAppInput);

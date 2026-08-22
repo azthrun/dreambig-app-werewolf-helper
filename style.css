@@ -814,7 +814,6 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 }
 .setup-header h1 { margin: 0; font-size: 18px; }
 
-.theme-switch { display: flex; gap: var(--space-1); }
 .btn-sm { min-height: 32px; padding: 0 var(--space-2); font-size: 12px; }
 .btn-ghost.is-active { background: var(--color-neutral-300); }
 .btn-secondary.is-active {
