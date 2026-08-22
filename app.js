@@ -582,7 +582,9 @@ function renderSetup4() {
 
       <div class="preset-row">
         <button type="button" class="btn btn-secondary" data-action="assign-random-roles">随机分配剩余身份</button>
-        <button type="button" class="btn btn-secondary${loverPairMode ? ' is-active' : ''}" data-action="toggle-lover-mode">设为情侣</button>
+        ${(state.roleCounts.cupid ?? 0) > 0 ? `
+          <button type="button" class="btn btn-secondary${loverPairMode ? ' is-active' : ''}" data-action="toggle-lover-mode">设为情侣</button>
+        ` : ''}
       </div>
 
       ${loverBannerHtml}
@@ -1457,7 +1459,9 @@ function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats
   if (gameExpandedSeat === p.seat) {
     const loverActionHtml = p.loverSeat != null
       ? `<button type="button" class="btn btn-ghost btn-sm" data-action="unpair-lover-game" data-seat="${p.seat}">解除情侣（与 ${p.loverSeat}号）</button>`
-      : `<button type="button" class="btn btn-secondary btn-sm" data-action="set-lover-game" data-seat="${p.seat}">设为情侣</button>`;
+      : (state.roleCounts.cupid ?? 0) > 0
+        ? `<button type="button" class="btn btn-secondary btn-sm" data-action="set-lover-game" data-seat="${p.seat}">设为情侣</button>`
+        : '';
     return `
       <div class="player-card player-card-expanded" data-seat="${p.seat}">
         <div class="player-card-expanded-header" data-action="toggle-alive-expand" data-seat="${p.seat}">
