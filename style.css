@@ -2,153 +2,250 @@
  * style.css — 设计令牌 + 组件层 + 布局
  * SPEC §12.4
  *
- * 沿用 Modernist 设计系统的令牌架构与扁平风格（0 圆角、2px 分隔线、
- * 标签左对齐、单一强调红），但作两处必要修正：
- *   1. 移除 Google Fonts —— Archivo 无 CJK 覆盖，界面几乎全为中文
- *   2. 新增暗色主题 —— 狼人杀在昏暗环境进行，局内默认暗色
+ * 采用 DreamBig 设计系统。令牌层逐字符移植自设计系统的 tokens/*.css ——
+ * 那是设计系统的真正契约，不作改写；组件层则以类名重新表达，全部由令牌驱动。
  *
- * ⚠️ 组件层与布局尚未实现 —— 仅令牌与骨架就位。
+ * 与设计稿的两处必要偏离（见 issue #36）：
+ *   1. 不引入 Google Fonts —— 本应用为 cache-first 离线 PWA，且界面几乎全为中文，
+ *      Inter 无 CJK 覆盖，汉字本就回落到系统字体。字体栈保留 DreamBigSans / Inter
+ *      的优先顺序，仅本地解析；日后拿到 woff2 再在此处补 @font-face 即可。
+ *   2. 不引入 unpkg 的 Lucide —— 所需字形已内联进 icons.svg sprite。
+ *
+ * 仅浅色。深色模式已移除（issue #36）。
  */
 
 /* ══════════════════════════════════════════════════════════════════
-   令牌 —— 浅色（完整定义于裸 :root）
+   令牌 —— 移植自 DreamBig 设计系统
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── tokens/fonts.css ──（去掉 Google Fonts @import，其余照录） */
+:root {
+  --font-sans: "DreamBigSans", "Inter", -apple-system, system-ui, "Segoe UI",
+               "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Helvetica, Arial, sans-serif;
+  --font-features: "lnum" 1, "locl" 1;
+}
+
+/* ── tokens/colors.css ── */
+:root {
+  /* Base: brand */
+  --blue-600: #0075de; --blue-700: #005bab; --indigo-900: #213183;
+  /* Base: neutrals (warm) */
+  --white: #ffffff; --paper: #f6f5f4; --hairline-grey: #e6e6e6; --input-grey: #dddddd;
+  --black: #000000; --warm-charcoal: #31302e; --stone: #615d59; --ash: #a39e98;
+  /* Base: decorative accent palette */
+  --accent-sky: #62aef0; --accent-purple: #d6b6f6; --accent-purple-deep: #391c57;
+  --accent-pink: #ff64c8; --accent-orange: #dd5b00; --accent-orange-deep: #793400;
+  --accent-teal: #2a9d99; --accent-green: #1aae39; --accent-brown: #523410;
+
+  /* Semantic: action */
+  --color-primary: var(--blue-600); --color-primary-active: var(--blue-700);
+  --color-secondary: var(--indigo-900); --color-on-primary: var(--white);
+  --fill-translucent: rgba(0, 0, 0, 0.05);
+  /* Semantic: surface */
+  --canvas: var(--paper); --canvas-white: var(--white); --surface-card: var(--white);
+  --surface-featured: var(--paper); --surface-night: var(--indigo-900);
+  /* Semantic: text */
+  --text-body: rgba(0, 0, 0, 0.95); --text-heading: rgba(0, 0, 0, 0.95);
+  --text-secondary: var(--warm-charcoal); --text-muted: var(--stone); --text-faint: var(--ash);
+  --text-on-dark: var(--white); --text-link: var(--color-primary);
+  /* Semantic: line */
+  --border-hairline: var(--hairline-grey); --border-input: var(--input-grey);
+  --border-on-dark: rgba(255, 255, 255, 0.16);
+}
+
+/* ── tokens/typography.css ── */
+:root {
+  --size-display-1: 64px; --tracking-display-1: -2.125px; --lh-display-1: 1;
+  --size-display-2: 54px; --tracking-display-2: -1.875px; --lh-display-2: 1.04;
+  --size-heading-1: 40px; --tracking-heading-1: -1px; --lh-heading-1: 1.1;
+  --size-heading-2: 26px; --tracking-heading-2: -0.625px; --lh-heading-2: 1.23;
+  --size-heading-3: 22px; --tracking-heading-3: -0.25px; --lh-heading-3: 1.27;
+  --size-title: 20px; --tracking-title: -0.125px; --lh-title: 1.4;
+  --size-body-md: 16px; --tracking-body-md: 0; --lh-body-md: 1.5;
+  --size-body-sm: 15px; --tracking-body-sm: 0; --lh-body-sm: 1.33;
+  --size-button: 16px; --tracking-button: 0; --lh-button: 1.5;
+  --size-caption: 14px; --tracking-caption: 0; --lh-caption: 1.43;
+  --size-eyebrow: 12px; --tracking-eyebrow: 0.125px; --lh-eyebrow: 1.33;
+
+  --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600; --weight-bold: 700;
+
+  --type-display-1: var(--weight-bold) var(--size-display-1)/var(--lh-display-1) var(--font-sans);
+  --type-display-2: var(--weight-bold) var(--size-display-2)/var(--lh-display-2) var(--font-sans);
+  --type-heading-1: var(--weight-bold) var(--size-heading-1)/var(--lh-heading-1) var(--font-sans);
+  --type-heading-2: var(--weight-bold) var(--size-heading-2)/var(--lh-heading-2) var(--font-sans);
+  --type-heading-3: var(--weight-bold) var(--size-heading-3)/var(--lh-heading-3) var(--font-sans);
+  --type-title: var(--weight-semibold) var(--size-title)/var(--lh-title) var(--font-sans);
+  --type-body-md: var(--weight-regular) var(--size-body-md)/var(--lh-body-md) var(--font-sans);
+  --type-body-sm: var(--weight-regular) var(--size-body-sm)/var(--lh-body-sm) var(--font-sans);
+  --type-button: var(--weight-medium) var(--size-button)/var(--lh-button) var(--font-sans);
+  --type-caption: var(--weight-regular) var(--size-caption)/var(--lh-caption) var(--font-sans);
+  --type-eyebrow: var(--weight-semibold) var(--size-eyebrow)/var(--lh-eyebrow) var(--font-sans);
+}
+
+/* ── tokens/spacing.css ── */
+:root {
+  /* base unit 8px */
+  --space-xxs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px;
+  --space-lg: 24px; --space-xl: 28px; --space-xxl: 32px;
+  /* documented off-scale values —— 照录，不要吸附到 8px 网格 */
+  --space-input: 6px; --space-button-utility: 4px 14px; --space-badge: 4px 8px;
+  /* semantic */
+  --pad-card: var(--space-lg); --pad-nav: var(--space-md); --pad-footer: var(--space-xxl);
+  --pad-hero: var(--space-xxl); --pad-empty-state: var(--space-xxl);
+  --gap-grid: var(--space-lg); --gap-section: 96px;
+}
+
+/* ── tokens/radius.css ── */
+:root {
+  --radius-xs: 4px; --radius-sm: 5px; --radius-md: 8px;
+  --radius-lg: 12px; --radius-xl: 16px; --radius-full: 9999px;
+  /* semantic */
+  --radius-input: var(--radius-xs); --radius-menu-item: var(--radius-sm);
+  --radius-button-utility: var(--radius-md); --radius-button-pill: var(--radius-full);
+  --radius-card: var(--radius-lg); --radius-plan-card: var(--radius-md);
+  --radius-media: var(--radius-lg); --radius-well: var(--radius-xl);
+}
+
+/* ── tokens/elevation.css ── */
+:root {
+  /* Level 0 是一条 hairline，无阴影 —— 见 --border-hairline */
+  --shadow-soft:
+    rgba(0, 0, 0, 0.01) 0 0.175px 1.041px, rgba(0, 0, 0, 0.02) 0 0.8px 2.925px,
+    rgba(0, 0, 0, 0.027) 0 2.025px 7.847px, rgba(0, 0, 0, 0.04) 0 4px 18px;
+  --shadow-elevated:
+    rgba(0, 0, 0, 0.01) 0 0.5px 1.5px, rgba(0, 0, 0, 0.02) 0 1.5px 4.5px,
+    rgba(0, 0, 0, 0.03) 0 4px 11px, rgba(0, 0, 0, 0.04) 0 10px 25px,
+    rgba(0, 0, 0, 0.05) 0 23px 52px;
+  /* semantic */
+  --shadow-card-raised: var(--shadow-soft); --shadow-input-focus: var(--shadow-soft);
+  --shadow-modal: var(--shadow-elevated); --shadow-toast: var(--shadow-soft);
+}
+
+/* ── tokens/motion.css ── */
+:root {
+  --press-scale: 0.9; --press-scale-subtle: 0.97;
+  --duration-fast: 120ms; --duration-base: 180ms; --duration-slow: 280ms;
+  --ease-standard: cubic-bezier(0.2, 0.6, 0.2, 1); --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --transition-press: transform var(--duration-fast) var(--ease-standard);
+  --transition-surface:
+    background-color var(--duration-base) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard),
+    border-color var(--duration-base) var(--ease-standard);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   本项目令牌 —— 设计系统之外、本应用特有的语义
    ══════════════════════════════════════════════════════════════════ */
 :root {
-  --color-bg: #f3f2f2;
-  --color-surface: #eae9e9;
-  --color-text: #201e1d;
-  --color-accent: #ec3013;
-  --color-divider: color-mix(in srgb, #201e1d 40%, transparent);
-
-  --color-neutral-100: #f8f4f4;
-  --color-neutral-200: #eae7e7;
-  --color-neutral-300: #d7d3d3;
-  --color-neutral-400: #bab6b6;
-  --color-neutral-500: #9b9797;
-  --color-neutral-600: #7d7979;
-  --color-neutral-700: #605d5d;
-  --color-neutral-800: #444141;
-  --color-neutral-900: #2d2b2b;
-
-  --color-accent-100: #fff2ef;
-  --color-accent-200: #ffe0d9;
-  --color-accent-300: #ffc4b8;
-  --color-accent-400: #ff9783;
-  --color-accent-500: #ff563c;
-  --color-accent-600: #dd2b0f;
-  --color-accent-700: #ae1800;
-  --color-accent-800: #7c1405;
-  --color-accent-900: #4d170e;
-
-  /* 系统字体栈，含 CJK 回退（SPEC §12.4） */
-  --font-body: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB",
-               "Microsoft YaHei", sans-serif;
-  --font-heading: var(--font-body);
-  --font-heading-weight: 700;
-
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-
-  --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
-  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
-  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+  /* 阵营色：狼 / 神 / 民。设计稿以此区分阵营，卡片下方始终另有身份文字。 */
+  --camp-wolf: var(--accent-orange);
+  --camp-god: var(--accent-teal);
+  --camp-civ: var(--accent-green);
 
   /* 布局 */
   --app-max-width: 480px;
   --tap-min: 44px;
 }
 
-/* 令牌 —— 暗色（系统偏好；以 :not([data-theme="light"]) 保护） */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --color-bg: #1a1918;
-    --color-surface: #262423;
-    --color-text: #ebe8e6;
-    --color-divider: color-mix(in srgb, #ebe8e6 30%, transparent);
-    --color-accent: #ff563c;
+/* ══════════════════════════════════════════════════════════════════
+   过渡别名 —— 组件层尚未改写完的旧令牌名
+   逐屏改写推进过程中会逐步消失；提交 7 之前应清零。
+   ══════════════════════════════════════════════════════════════════ */
+:root {
+  --color-bg: var(--canvas);
+  --color-surface: var(--surface-card);
+  --color-text: var(--text-body);
+  --color-accent: var(--color-primary);
+  --color-divider: var(--border-hairline);
 
-    --color-neutral-100: #242220;
-    --color-neutral-200: #2e2b29;
-    --color-neutral-300: #3d3937;
-    --color-neutral-400: #514c49;
-    --color-neutral-500: #6b6663;
-    --color-neutral-600: #86807c;
-    --color-neutral-700: #a29c98;
-    --color-neutral-800: #c2bcb8;
-    --color-neutral-900: #ebe8e6;
+  --color-neutral-100: #fbfaf9;
+  --color-neutral-200: #f2f0ee;
+  --color-neutral-300: var(--hairline-grey);
+  --color-neutral-400: var(--input-grey);
+  --color-neutral-500: var(--ash);
+  --color-neutral-600: #8b8681;
+  --color-neutral-700: var(--stone);
+  --color-neutral-800: #47443f;
+  --color-neutral-900: var(--warm-charcoal);
 
-    --color-accent-100: #2a130d;
-    --color-accent-200: #3d1a10;
-    --color-accent-300: #5c2015;
-    --color-accent-400: #8a2a1a;
-    --color-accent-500: #c23a1c;
-    --color-accent-600: #ff563c;
-    --color-accent-700: #ff8266;
-    --color-accent-800: #ffb3a0;
-    --color-accent-900: #ffe0d9;
-  }
-}
+  --color-accent-100: #eaf4fe;
+  --color-accent-200: #cfe6fc;
+  --color-accent-300: #a5d0f8;
+  --color-accent-400: #6bb2f3;
+  --color-accent-500: #2b8fe8;
+  --color-accent-600: var(--blue-600);
+  --color-accent-700: var(--blue-700);
+  --color-accent-800: #00447f;
+  --color-accent-900: var(--indigo-900);
 
-/* 令牌 —— 暗色（手动切换；使两个方向都生效） */
-:root[data-theme="dark"] {
-  --color-bg: #1a1918;
-  --color-surface: #262423;
-  --color-text: #ebe8e6;
-  --color-divider: color-mix(in srgb, #ebe8e6 30%, transparent);
-  --color-accent: #ff563c;
+  --font-body: var(--font-sans);
+  --font-heading: var(--font-sans);
+  --font-heading-weight: var(--weight-bold);
 
-  --color-neutral-100: #242220;
-  --color-neutral-200: #2e2b29;
-  --color-neutral-300: #3d3937;
-  --color-neutral-400: #514c49;
-  --color-neutral-500: #6b6663;
-  --color-neutral-600: #86807c;
-  --color-neutral-700: #a29c98;
-  --color-neutral-800: #c2bcb8;
-  --color-neutral-900: #ebe8e6;
+  --space-1: var(--space-xxs);
+  --space-2: var(--space-xs);
+  --space-3: var(--space-sm);
+  --space-4: var(--space-md);
+  --space-5: 20px;
+  --space-6: var(--space-lg);
+  --space-8: var(--space-xxl);
 
-  --color-accent-100: #2a130d;
-  --color-accent-200: #3d1a10;
-  --color-accent-300: #5c2015;
-  --color-accent-400: #8a2a1a;
-  --color-accent-500: #c23a1c;
-  --color-accent-600: #ff563c;
-  --color-accent-700: #ff8266;
-  --color-accent-800: #ffb3a0;
-  --color-accent-900: #ffe0d9;
+  --shadow-sm: var(--shadow-soft);
+  --shadow-md: var(--shadow-soft);
+  --shadow-lg: var(--shadow-elevated);
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   基础
+   基础 —— 移植自设计系统 tokens/base.css，另加本应用的手势与滚动约束
    ══════════════════════════════════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 
 html, body {
   margin: 0;
   height: 100%;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-body);
-  font-size: 15px;
-  line-height: 1.55;
+  background: var(--canvas);
+  color: var(--text-body);
+  font: var(--type-body-md);
+  font-feature-settings: var(--font-features);
+  text-wrap: pretty;
   overscroll-behavior: none;
 }
 
+h1, h2, h3, h4 { margin: 0; color: var(--text-heading); }
+h1 { font: var(--type-heading-1); letter-spacing: var(--tracking-heading-1); }
+h2 { font: var(--type-heading-2); letter-spacing: var(--tracking-heading-2); }
+h3 { font: var(--type-heading-3); letter-spacing: var(--tracking-heading-3); }
+h4 { font: var(--type-title); letter-spacing: var(--tracking-title); }
+p { margin: 0; }
+hr { border: 0; border-top: 1px solid var(--border-hairline); margin: 0; }
+
 /* 局内以手势为主，禁止误选文本；输入框除外 */
 * { -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
-input, textarea { -webkit-user-select: text; user-select: text; }
+input, textarea { -webkit-user-select: text; user-select: text; font-family: var(--font-sans); }
 
 :focus { outline: none; }
-:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   图标 —— icons.svg sprite 的统一用法
+   ══════════════════════════════════════════════════════════════════ */
+.icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon-sm { width: 16px; height: 16px; }
+.icon-lg { width: 24px; height: 24px; }
 
 /* ══════════════════════════════════════════════════════════════════
    骨架布局                                              SPEC §12.1
@@ -457,7 +554,16 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 .player-card.is-dead > .tag { flex: 0 0 100%; }
 
-.player-card-icon { width: 20px; height: 20px; flex: 0 0 auto; }
+.player-card-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .player-card-lover { font-size: 10px; }
 
 /* 高亮脉冲 —— 警报通道，SPEC §10.2 */
