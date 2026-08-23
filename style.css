@@ -939,52 +939,84 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 /* ══════════════════════════════════════════════════════════════════
    日志页                                                    SPEC §16
    ══════════════════════════════════════════════════════════════════ */
-.log-filter-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/* 日志与战报共用的页眉：标题 + 返回 */
+.page-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 20px 20px var(--space-sm);
+  background: var(--canvas);
+}
+.page-title { font: var(--type-heading-2); letter-spacing: var(--tracking-heading-2); }
+.page-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 20px var(--space-xxl);
+}
 
-.log-groups { display: flex; flex-direction: column; gap: var(--space-2); }
+.log-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: 0 20px var(--space-xs);
+}
+
+.log-groups { display: flex; flex-direction: column; gap: var(--space-sm); }
 
 .log-group {
-  border: 2px solid var(--color-divider);
-  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 .log-group-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-sm);
   width: 100%;
-  min-height: var(--tap-min);
-  padding: var(--space-2) var(--space-3);
+  padding: 14px var(--space-md);
   border: none;
-  background: var(--color-neutral-200);
-  color: var(--color-text);
-  font: inherit;
-  font-weight: 700;
+  background: var(--surface-featured);
+  color: var(--text-body);
+  font: var(--type-title);
+  font-family: var(--font-sans);
+  letter-spacing: var(--tracking-title);
   cursor: pointer;
 }
-.log-group-count { font-size: 12px; font-weight: 400; color: var(--color-neutral-600); }
+.log-group-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font: var(--type-caption);
+  color: var(--text-muted);
+}
 
 .log-group-body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-xxs) var(--space-md) var(--space-xs);
 }
 .log-group-body[hidden] { display: none; }
 
 .log-entry {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) 0;
-  border-bottom: 1px solid var(--color-divider);
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-hairline);
 }
 .log-entry:last-child { border-bottom: none; }
-.log-entry-text { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+.log-entry-text { flex: 1; min-width: 0; font: var(--type-body-sm); text-wrap: pretty; }
 .log-entry-note .log-entry-text { font-style: italic; }
 
-.log-note-row { display: flex; gap: var(--space-2); }
+.log-note-row { display: flex; gap: var(--space-xs); align-items: center; }
 .log-note-row .input { flex: 1 1 auto; min-width: 0; }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1279,38 +1311,50 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 /* ══════════════════════════════════════════════════════════════════
    战报页                                                    SPEC §4.4
    ══════════════════════════════════════════════════════════════════ */
-.report-section { display: flex; flex-direction: column; gap: var(--space-2); }
-.report-section-title { margin: 0; font-size: 14px; }
-.report-log-section { padding-bottom: var(--space-4); }
+.report-section { display: flex; flex-direction: column; gap: var(--space-xs); }
+.report-log-section { padding-bottom: var(--space-md); }
 
 .report-roster {
   display: flex;
   flex-direction: column;
-  border: 2px solid var(--color-divider);
-  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 .report-roster-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-divider);
-  font-size: 13px;
+  gap: var(--space-xs);
+  padding: 10px var(--space-md);
+  border-bottom: 1px solid var(--border-hairline);
+  font: var(--type-body-sm);
 }
 .report-roster-row:last-child { border-bottom: none; }
-.report-roster-row.is-dead { color: var(--color-neutral-600); }
-.report-roster-seat { font-weight: 700; min-width: 3em; }
+.report-roster-row.is-dead { color: var(--text-muted); }
+.report-roster-seat {
+  min-width: 3em;
+  color: var(--text-faint);
+  font: var(--type-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  font-variant-numeric: tabular-nums;
+}
+.role-tile-sm { width: 26px; height: 26px; border-radius: var(--radius-sm); }
+.role-tile-sm .icon { width: 15px; height: 15px; }
 .report-roster-name { min-width: 4em; }
-.report-roster-role { flex: 1 1 auto; }
-.report-roster-time { color: var(--color-neutral-600); }
+.report-roster-role { flex: 1 1 auto; color: var(--text-muted); }
+.report-roster-status { font: var(--type-eyebrow); letter-spacing: var(--tracking-eyebrow); }
+.report-roster-row.is-dead .report-roster-status { color: var(--accent-orange); }
+.report-roster-time { color: var(--text-faint); font: var(--type-eyebrow); }
 
-.report-log { display: flex; flex-direction: column; gap: var(--space-2); }
+.report-log { display: flex; flex-direction: column; gap: var(--space-sm); }
 .log-group-header-static {
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-neutral-200);
-  font-weight: 700;
+  padding: 14px var(--space-md);
+  background: var(--surface-featured);
+  border-bottom: 1px solid var(--border-hairline);
+  font: var(--type-title);
+  letter-spacing: var(--tracking-title);
 }
 
 /* 存活卡片首行：座位号 + 姓名 + 情侣心，随列宽收缩 */
@@ -1320,3 +1364,20 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
   gap: var(--space-xxs);
   max-width: 100%;
 }
+
+/* 行内移除按钮 —— 死亡提案、法官备注等列表行共用 */
+.row-remove {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  transition: var(--transition-surface);
+}
+.row-remove:active { background: var(--fill-translucent); color: var(--text-body); }

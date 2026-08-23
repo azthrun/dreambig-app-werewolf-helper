@@ -1175,16 +1175,18 @@ function renderLog() {
     : `<p class="note">暂无符合条件的日志</p>`;
 
   host.innerHTML = `
-    <div class="wrap log-screen">
-      <div class="setup-header">
-        <h1>日志</h1>
-        <button type="button" class="btn btn-secondary" data-action="goto-game">‹ 返回</button>
+    <div class="log-screen">
+      <div class="page-head">
+        <span class="page-title">日志</span>
+        <button type="button" class="btn btn-secondary" data-action="goto-game">${icon('chevron-left')}返回</button>
       </div>
       <div class="log-filter-row" role="group" aria-label="日志筛选">${filterHtml}</div>
-      <div class="log-groups">${groupsHtml}</div>
-      <div class="log-note-row">
-        <input type="text" id="log-note-input" class="input" placeholder="添加法官备注…" maxlength="200" aria-label="法官备注">
-        <button type="button" class="btn btn-secondary" data-action="add-note">记录</button>
+      <div class="page-body">
+        <div class="log-groups">${groupsHtml}</div>
+        <div class="log-note-row">
+          <input type="text" id="log-note-input" class="input" placeholder="添加法官备注…" maxlength="200" aria-label="法官备注">
+          <button type="button" class="btn" data-action="add-note">记录</button>
+        </div>
       </div>
     </div>
   `;
@@ -1225,7 +1227,7 @@ function renderLogGroup(group, currentKey) {
     <div class="log-group">
       <button type="button" class="log-group-header" data-action="toggle-log-group" data-key="${escapeAttr(group.key)}" aria-expanded="${isOpen}">
         <span>${label}</span>
-        <span class="log-group-count">${group.entries.length} 条 ${isOpen ? '▾' : '▸'}</span>
+        <span class="log-group-count">${group.entries.length} 条${icon(isOpen ? 'chevron-up' : 'chevron-down', 'icon-sm')}</span>
       </button>
       <div class="log-group-body"${isOpen ? '' : ' hidden'}>${entriesHtml}</div>
     </div>
@@ -1238,7 +1240,7 @@ function renderLogGroup(group, currentKey) {
  */
 function renderLogEntryRow(entry, idx) {
   const deleteBtn = entry.type === 'note'
-    ? `<button type="button" class="btn btn-ghost btn-sm" data-action="delete-note" data-index="${idx}" aria-label="删除备注">删除</button>`
+    ? `<button type="button" class="row-remove" data-action="delete-note" data-index="${idx}" aria-label="删除备注">${icon('x', 'icon-sm')}</button>`
     : '';
   return `
     <div class="log-entry log-entry-${entry.type}">
@@ -1279,7 +1281,7 @@ function renderReport() {
   if (!host) return;
 
   const winnerButtonsHtml = WINNER_OPTIONS.map(w => `
-    <button type="button" class="btn btn-secondary${state.winner === w.key ? ' is-active' : ''}" data-action="set-winner" data-winner="${w.key}">${w.label}</button>
+    <button type="button" class="btn btn-utility${state.winner === w.key ? ' is-active' : ''}" data-action="set-winner" data-winner="${w.key}">${w.label}</button>
   `).join('');
 
   const rosterHtml = state.players.map(renderReportRosterRow).join('');
@@ -1287,35 +1289,34 @@ function renderReport() {
   const durationText = formatDuration(reportDurationMs());
 
   host.innerHTML = `
-    <div class="wrap report-screen">
-      <div class="setup-header">
-        <h1>战报</h1>
-        <div class="actions">
-          <button type="button" class="btn btn-secondary btn-longpress" data-action="new-game-report" data-longpress="true">
-            <span>开新局</span>
-          </button>
-          <button type="button" class="btn btn-secondary" data-action="return-to-game-report">‹ 返回</button>
-        </div>
+    <div class="report-screen">
+      <div class="page-head">
+        <span class="page-title">战报</span>
+        <button type="button" class="btn btn-secondary" data-action="return-to-game-report">${icon('chevron-left')}返回</button>
       </div>
 
-      <section class="report-section">
-        <h2 class="report-section-title">胜方</h2>
-        <div class="actions" role="group" aria-label="胜方">${winnerButtonsHtml}</div>
-      </section>
+      <div class="page-body">
+        <div class="card">
+          <span class="eyebrow">胜方</span>
+          <div class="actions" role="group" aria-label="胜方">${winnerButtonsHtml}</div>
+          <div class="rule"></div>
+          <p class="note">${state.playerCount}人局 · 共${state.day}天 · 用时 ${durationText}</p>
+        </div>
 
-      <section class="report-section">
-        <p class="note">${state.playerCount}人局 · 共${state.day}天 · 用时 ${durationText}</p>
-      </section>
+        <section class="report-section">
+          <span class="eyebrow">名单</span>
+          <div class="report-roster">${rosterHtml}</div>
+        </section>
 
-      <section class="report-section">
-        <h2 class="report-section-title">名单</h2>
-        <div class="report-roster">${rosterHtml}</div>
-      </section>
+        <section class="report-section report-log-section">
+          <span class="eyebrow">完整日志</span>
+          <div class="report-log">${logHtml}</div>
+        </section>
 
-      <section class="report-section report-log-section">
-        <h2 class="report-section-title">完整日志</h2>
-        <div class="report-log">${logHtml}</div>
-      </section>
+        <button type="button" class="btn btn-block btn-longpress" data-action="new-game-report" data-longpress="true">
+          <span>${icon('rotate-ccw')}开新局（长按）</span>
+        </button>
+      </div>
     </div>
   `;
 
@@ -1332,6 +1333,7 @@ function renderReportRosterRow(p) {
   return `
     <div class="report-roster-row${p.alive ? '' : ' is-dead'}">
       <span class="report-roster-seat">${p.seat}号</span>
+      ${roleTile(roleId ? ROLE_MAP[roleId] : null, { unset: !roleId, cls: 'role-tile-sm' })}
       <span class="report-roster-name">${escapeText(nameLabel)}</span>
       <span class="report-roster-role">${escapeText(roleLabel)}</span>
       <span class="report-roster-status">${statusLabel}</span>
