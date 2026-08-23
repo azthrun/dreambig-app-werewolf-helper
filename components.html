@@ -3,66 +3,55 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>组件预览 — 角色图标</title>
+<title>组件预览 — 图标 sprite</title>
 <link rel="stylesheet" href="./style.css">
 <style>
   body {
-    padding: var(--space-6);
+    padding: var(--space-lg);
     max-width: 720px;
     margin: 0 auto;
   }
-  .preview-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-    margin-bottom: var(--space-6);
-  }
-  .preview-header h1 {
-    font-size: 18px;
-    margin: 0;
-  }
+  .preview-header { margin-bottom: var(--space-lg); }
+  .preview-note { font: var(--type-body-sm); color: var(--text-muted); margin-top: var(--space-xs); }
+  .icon-group { margin-top: var(--space-xxl); }
   .icon-group h2 {
-    font-size: 14px;
-    color: var(--color-neutral-600);
-    border-bottom: 2px solid var(--color-divider);
-    padding-bottom: var(--space-2);
-    margin: var(--space-6) 0 var(--space-4);
+    font: var(--type-title);
+    letter-spacing: var(--tracking-title);
+    margin-bottom: var(--space-md);
   }
   .icon-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    gap: var(--space-4);
+    gap: var(--space-sm);
   }
   .icon-card {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    border: 2px solid var(--color-divider);
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    background: var(--surface-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-card);
   }
-  .icon-card svg {
-    width: 24px;
-    height: 24px;
-    color: var(--color-text);
-    flex-shrink: 0;
-  }
-  .icon-card .icon-name {
-    font-size: 13px;
-    text-align: center;
-  }
+  .icon-card .icon-name { font: var(--type-caption); text-align: center; }
   .icon-card .icon-id {
-    font-size: 11px;
-    color: var(--color-neutral-600);
+    font: var(--type-eyebrow);
+    letter-spacing: var(--tracking-eyebrow);
+    color: var(--text-faint);
+    text-align: center;
+    word-break: break-all;
   }
 </style>
 </head>
 <body>
 
 <div class="preview-header">
-  <h1>角色图标 sprite 预览 — SPEC §12.5</h1>
-  <button type="button" class="btn btn-secondary" id="theme-toggle">切换主题</button>
+  <h1>图标 sprite 预览 — SPEC §12.5</h1>
+  <p class="preview-note">
+    字形取自 Lucide（lucide-static v1.33.0，ISC），内联于 <code>icons.svg</code>。
+    角色符号以阵营色底板呈现；界面符号取 <code>currentColor</code>。
+  </p>
 </div>
 
 <div id="icon-sprite" hidden></div>
@@ -72,56 +61,66 @@
 <script type="module">
 import { ROLES, CAMP, CAMP_NAME } from './roles.js';
 
+const CAMP_CLASS = { [CAMP.WOLF]: 'camp-wolf', [CAMP.GOD]: 'camp-god', [CAMP.CIV]: 'camp-civ' };
+
 async function inlineSprite() {
   const res = await fetch('./icons.svg');
-  const text = await res.text();
-  document.getElementById('icon-sprite').innerHTML = text;
+  document.getElementById('icon-sprite').innerHTML = await res.text();
 }
 
-function iconCard(iconId, name) {
+/** 角色卡：阵营色底板 + 名称 + 符号 ID */
+function roleCard(iconId, name, campClass) {
   const card = document.createElement('div');
   card.className = 'icon-card';
   card.innerHTML = `
-    <svg aria-hidden="true"><use href="#${iconId}"></use></svg>
+    <span class="role-tile ${campClass}"><svg class="icon" aria-hidden="true"><use href="#${iconId}"></use></svg></span>
     <span class="icon-name">${name}</span>
     <span class="icon-id">${iconId}</span>
   `;
   return card;
 }
 
-function renderRoles() {
-  const groupsEl = document.getElementById('groups');
-
-  for (const camp of [CAMP.WOLF, CAMP.GOD, CAMP.CIV]) {
-    const group = document.createElement('div');
-    group.className = 'icon-group';
-    group.innerHTML = `<h2>${CAMP_NAME[camp]}</h2>`;
-    const grid = document.createElement('div');
-    grid.className = 'icon-grid';
-    for (const role of ROLES.filter(r => r.camp === camp)) {
-      grid.appendChild(iconCard(role.icon, role.name));
-    }
-    group.appendChild(grid);
-    groupsEl.appendChild(group);
-  }
-
-  const statusGroup = document.createElement('div');
-  statusGroup.className = 'icon-group';
-  statusGroup.innerHTML = `<h2>状态标记（非角色，SPEC §5.3）</h2>`;
-  const statusGrid = document.createElement('div');
-  statusGrid.className = 'icon-grid';
-  statusGrid.appendChild(iconCard('icon-lover', '情侣'));
-  statusGroup.appendChild(statusGrid);
-  groupsEl.appendChild(statusGroup);
+/** 界面卡：裸字形，取 currentColor */
+function uiCard(iconId) {
+  const card = document.createElement('div');
+  card.className = 'icon-card';
+  card.innerHTML = `
+    <svg class="icon icon-lg" aria-hidden="true"><use href="#${iconId}"></use></svg>
+    <span class="icon-id">${iconId}</span>
+  `;
+  return card;
 }
 
-document.getElementById('theme-toggle').addEventListener('click', () => {
-  const root = document.documentElement;
-  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
-});
+function group(title, cards) {
+  const el = document.createElement('div');
+  el.className = 'icon-group';
+  el.innerHTML = `<h2>${title}</h2>`;
+  const grid = document.createElement('div');
+  grid.className = 'icon-grid';
+  for (const c of cards) grid.appendChild(c);
+  el.appendChild(grid);
+  document.getElementById('groups').appendChild(el);
+}
+
+function render() {
+  for (const camp of [CAMP.WOLF, CAMP.GOD, CAMP.CIV]) {
+    group(CAMP_NAME[camp], ROLES.filter(r => r.camp === camp)
+      .map(r => roleCard(r.icon, r.name, CAMP_CLASS[camp])));
+  }
+
+  group('状态标记（非角色，SPEC §5.3）', [roleCard('icon-lover', '情侣', 'camp-god')]);
+
+  // 界面字形：直接读 sprite，凡不属于角色的符号都列出，避免手工清单与 sprite 脱节
+  const roleIds = new Set([...ROLES.map(r => r.icon), 'icon-lover']);
+  const uiIds = [...document.querySelectorAll('#icon-sprite symbol')]
+    .map(s => s.id)
+    .filter(id => !roleIds.has(id))
+    .sort();
+  group(`界面字形（${uiIds.length}）`, uiIds.map(uiCard));
+}
 
 await inlineSprite();
-renderRoles();
+render();
 </script>
 
 </body>

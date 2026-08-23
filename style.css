@@ -148,54 +148,6 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   过渡别名 —— 组件层尚未改写完的旧令牌名
-   逐屏改写推进过程中会逐步消失；提交 7 之前应清零。
-   ══════════════════════════════════════════════════════════════════ */
-:root {
-  --color-bg: var(--canvas);
-  --color-surface: var(--surface-card);
-  --color-text: var(--text-body);
-  --color-accent: var(--color-primary);
-  --color-divider: var(--border-hairline);
-
-  --color-neutral-100: #fbfaf9;
-  --color-neutral-200: #f2f0ee;
-  --color-neutral-300: var(--hairline-grey);
-  --color-neutral-400: var(--input-grey);
-  --color-neutral-500: var(--ash);
-  --color-neutral-600: #8b8681;
-  --color-neutral-700: var(--stone);
-  --color-neutral-800: #47443f;
-  --color-neutral-900: var(--warm-charcoal);
-
-  --color-accent-100: #eaf4fe;
-  --color-accent-200: #cfe6fc;
-  --color-accent-300: #a5d0f8;
-  --color-accent-400: #6bb2f3;
-  --color-accent-500: #2b8fe8;
-  --color-accent-600: var(--blue-600);
-  --color-accent-700: var(--blue-700);
-  --color-accent-800: #00447f;
-  --color-accent-900: var(--indigo-900);
-
-  --font-body: var(--font-sans);
-  --font-heading: var(--font-sans);
-  --font-heading-weight: var(--weight-bold);
-
-  --space-1: var(--space-xxs);
-  --space-2: var(--space-xs);
-  --space-3: var(--space-sm);
-  --space-4: var(--space-md);
-  --space-5: 20px;
-  --space-6: var(--space-lg);
-  --space-8: var(--space-xxl);
-
-  --shadow-sm: var(--shadow-soft);
-  --shadow-md: var(--shadow-soft);
-  --shadow-lg: var(--shadow-elevated);
-}
-
-/* ══════════════════════════════════════════════════════════════════
    基础 —— 移植自设计系统 tokens/base.css，另加本应用的手势与滚动约束
    ══════════════════════════════════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; }
@@ -1256,7 +1208,7 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 .phase-step-dawn { align-items: stretch; }
 
 /** 白天主动行为按钮列表：骑士决斗 / 白狼王自爆带人 / 狼人自爆。SPEC §4.3 */
-.day-action-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.day-action-list { display: flex; flex-direction: column; gap: 10px; }
 .day-action-list:empty { display: none; }
 
 .step-death-line { margin: 0; font-size: 14px; font-weight: 700; }
@@ -1273,7 +1225,7 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 .answer-text { font: var(--type-heading-3); letter-spacing: var(--tracking-heading-3); }
 .answer-text-lg { font: var(--type-heading-2); letter-spacing: var(--tracking-heading-2); }
 
-.witch-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.witch-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 
 /* 技能状态芯片改为可点击按钮，用于手动修正（SPEC §6） */
 .skill-chip-toggle {
@@ -1291,23 +1243,17 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 .death-proposal-row {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-divider);
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-hairline);
 }
-.death-proposal-explanation { flex: 1 1 auto; font-size: 13px; }
-
-/* ══════════════════════════════════════════════════════════════════
-   阵营计数条                                                SPEC §17
-   ══════════════════════════════════════════════════════════════════ */
-.game-header-title-group {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+.death-proposal-explanation {
+  flex: 1;
+  min-width: 0;
+  font: var(--type-body-sm);
+  color: var(--text-secondary);
+  text-wrap: pretty;
 }
-.camp-count { font-size: 13px; color: var(--color-neutral-600); }
-.camp-count[data-has-unknown="true"] { color: var(--color-accent); }
 
 /* ══════════════════════════════════════════════════════════════════
    战报页                                                    SPEC §4.4

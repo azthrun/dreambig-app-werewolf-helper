@@ -61,15 +61,16 @@ python3 -m http.server 8000
 
 ```
 index.html      页面骨架
-style.css       设计令牌 + 组件层 + 布局
+style.css       设计令牌（DreamBig）+ 组件层 + 布局
 app.js          状态容器、渲染、手势、副作用
 engine.js       纯函数：天亮结算、触发链、信息计算
 roles.js        19 个角色与夜晚步骤的声明式数据表
 storage.js      localStorage、版本化、姓名池
-icons.svg       角色图标 sprite
+icons.svg       图标 sprite：角色 + 界面字形（Lucide，内联）
 manifest.json   PWA 清单
 sw.js           Service Worker
 test.html       engine.js 断言测试
+components.html 图标 sprite 可视索引
 SPEC.md         技术规格说明书
 ```
 
