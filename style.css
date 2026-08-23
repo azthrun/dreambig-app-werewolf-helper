@@ -346,65 +346,90 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 .player-grid[data-columns="5"] { grid-template-columns: repeat(5, 1fr); }
 
 /* ══════════════════════════════════════════════════════════════════
-   按钮                                                  SPEC §8.2
+   按钮 —— 对应设计系统的 Button / IconButton     SPEC §8.2
+   尺寸与配色照录 _ds_bundle.js 中 dbButtonBase / dbButtonVariants /
+   dbButtonSizes 与 IconButton 的 tones，仅由内联样式改写为类名。
    ══════════════════════════════════════════════════════════════════ */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
-  min-height: var(--tap-min);
-  min-width: var(--tap-min);
-  padding: 0 var(--space-4);
-  border: 2px solid var(--color-text);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  font-weight: 700;
-  line-height: 1;
+  gap: var(--space-xs);
+  padding: 9px 20px;                       /* dbButtonSizes.md */
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font: var(--type-button);
+  font-family: var(--font-sans);
+  white-space: nowrap;
   cursor: pointer;
-  transition: background-color .15s ease, border-color .15s ease,
-              color .15s ease, opacity .15s ease;
+  transition: var(--transition-press), var(--transition-surface);
 }
-.btn:hover        { background: var(--color-neutral-200); }
-.btn:active        { background: var(--color-neutral-300); }
+.btn:active { background: var(--color-primary-active); transform: scale(var(--press-scale)); }
 .btn:disabled,
 .btn[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
-.btn:disabled:hover        { background: transparent; }
-.btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.btn:disabled:active { transform: none; background: var(--color-primary); }
+.btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
-.btn-primary {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-neutral-100);
-}
-.btn-primary:hover  { background: var(--color-accent-700); border-color: var(--color-accent-700); }
-.btn-primary:active { background: var(--color-accent-800); border-color: var(--color-accent-800); }
+.btn-lg { padding: 13px 28px; }
+.btn-sm { padding: 4px 14px; }
+
+/* .btn 默认即 primary；保留类名以便标记意图 */
+.btn-primary { background: var(--color-primary); color: var(--color-on-primary); }
 
 .btn-secondary {
-  border-color: var(--color-divider);
-  background: var(--color-surface);
-  color: var(--color-text);
+  background: var(--surface-card);
+  color: var(--text-body);
+  box-shadow: var(--shadow-soft);
 }
-.btn-secondary:hover { background: var(--color-neutral-200); }
+.btn-secondary:active { background: var(--surface-card); }
+
+/* utility —— 圆角矩形而非胶囊，始终 sm 尺寸（见 Button.jsx） */
+.btn-utility {
+  padding: var(--space-button-utility);
+  border-radius: var(--radius-button-utility);
+  border-color: var(--border-hairline);
+  background: var(--surface-card);
+  color: var(--text-body);
+}
+.btn-utility:active { background: var(--canvas); transform: scale(var(--press-scale-subtle)); }
+.btn-utility .icon { width: 16px; height: 16px; }
 
 .btn-ghost {
   border-color: transparent;
   background: transparent;
-  color: var(--color-text);
+  color: var(--text-body);
 }
-.btn-ghost:hover { background: var(--color-neutral-200); }
+.btn-ghost:active { background: var(--fill-translucent); }
 
+/* IconButton —— 圆形，字形为边长的 45% */
 .btn-icon {
+  width: 40px;
+  height: 40px;
   padding: 0;
-  width: var(--tap-min);
-  min-width: var(--tap-min);
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--fill-translucent);
+  color: var(--text-body);
+}
+.btn-icon:active { background: var(--fill-translucent); transform: scale(var(--press-scale)); }
+.btn-icon .icon { width: 18px; height: 18px; }
+
+.btn-icon-sm { width: 36px; height: 36px; }
+.btn-icon-sm .icon { width: 16px; height: 16px; }
+.btn-icon-xs { width: 34px; height: 34px; }
+.btn-icon-xs .icon { width: 15px; height: 15px; }
+
+/* surface 色调：浮起于画布之上，用于计时器播放/暂停一类的主控件 */
+.btn-icon-surface {
+  background: var(--surface-card);
+  box-shadow: var(--shadow-soft);
 }
 
 .btn-block { display: flex; width: 100%; }
 
-/* 长按守护按钮 —— 按住 600ms，填充进度条给出可见反馈 */
+/* 长按守护按钮 —— 按住 600ms，填充进度条给出可见反馈。SPEC §8.2 */
 .btn-longpress {
   position: relative;
   overflow: hidden;
@@ -415,7 +440,7 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
   position: absolute;
   inset: 0;
   width: 0%;
-  background: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 30%, transparent);
   pointer-events: none;
 }
 .btn-longpress.is-pressing::before {
@@ -429,26 +454,24 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 .tag {
   display: inline-flex;
   align-items: center;
-  height: 24px;
-  padding: 0 var(--space-2);
-  border: 2px solid var(--color-text);
-  border-radius: var(--radius-sm);
-  background: var(--color-neutral-200);
-  color: var(--color-text);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
+  gap: var(--space-xxs);
+  padding: var(--space-badge);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-full);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font: var(--type-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
   white-space: nowrap;
 }
 .tag-accent {
-  border-color: var(--color-accent);
-  background: var(--color-accent-100);
-  color: var(--color-accent-700);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary-active);
 }
 .tag-outline {
-  border-color: var(--color-divider);
   background: transparent;
-  color: var(--color-neutral-600);
+  color: var(--text-muted);
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -457,30 +480,87 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 .field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-xxs);
   text-align: left;
 }
 .field label {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--color-text);
+  font: var(--type-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--text-muted);
 }
 
 .input {
   min-height: var(--tap-min);
-  padding: 0 var(--space-3);
-  border: 2px solid var(--color-divider);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-input);
+  background: var(--surface-card);
+  color: var(--text-body);
+  font: var(--type-body-md);
+  font-family: var(--font-sans);
 }
-.input::placeholder { color: var(--color-neutral-500); }
+.input::placeholder { color: var(--text-faint); }
 .input:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-  border-color: var(--color-accent);
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-input-focus);
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   卡片 / 分组 —— 设计稿反复出现的两种容器
+   ══════════════════════════════════════════════════════════════════ */
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.card-flush { padding: 0; gap: 0; overflow: hidden; }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 14px var(--space-md);
+  background: var(--surface-featured);
+  border-bottom: 1px solid var(--border-hairline);
+  font: var(--type-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--text-secondary);
+}
+
+.eyebrow {
+  font: var(--type-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--text-muted);
+}
+.rule { height: 1px; background: var(--border-hairline); }
+
+/* 阵营圆点与角色图标底板 —— 设计稿以颜色区分阵营，卡片另有身份文字 */
+.camp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex: none;
+}
+.role-tile {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-on-primary);
+}
+.role-tile .icon { width: 18px; height: 18px; }
+
+.camp-wolf { background: var(--camp-wolf); }
+.camp-god  { background: var(--camp-god); }
+.camp-civ  { background: var(--camp-civ); }
 
 /* ══════════════════════════════════════════════════════════════════
    玩家卡片                                              SPEC §12.2 / §8.3
@@ -650,82 +730,91 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 
 /* ══════════════════════════════════════════════════════════════════
    拖拽排序                                              SPEC §4.1
+   设计稿以上下箭头替代拖拽；本项目保留拖拽（见 issue #36），把手改用
+   Lucide 的 grip-vertical，其余节奏对齐设计稿的列表行。
    ══════════════════════════════════════════════════════════════════ */
 .drag-handle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: var(--tap-min);
+  width: 34px;
   height: var(--tap-min);
   border: none;
   background: transparent;
-  color: var(--color-neutral-500);
-  font-size: 18px;
-  line-height: 1;
+  color: var(--text-faint);
   cursor: grab;
   touch-action: none;
 }
-.drag-handle:active { cursor: grabbing; }
+.drag-handle:active { cursor: grabbing; color: var(--text-muted); }
+.drag-handle .icon { width: 16px; height: 16px; }
 
 .dragging {
-  opacity: .6;
-  box-shadow: var(--shadow-lg);
+  opacity: .95;
+  background: var(--surface-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-elevated);
   z-index: 10;
 }
 
 .drop-gap {
   height: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent-200);
-  border: 2px dashed var(--color-accent-400);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border: 1px dashed var(--color-primary);
   overflow: hidden;
-  transition: height .15s ease;
+  transition: height var(--duration-base) var(--ease-standard);
 }
 .drop-gap.is-active { height: 44px; }
 
-.reorder-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.reorder-list { display: flex; flex-direction: column; }
 .reorder-item {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  border: 2px solid var(--color-divider);
-  background: var(--color-surface);
-  padding: 0 var(--space-2);
+  gap: var(--space-sm);
+  padding: 10px var(--space-md);
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface-card);
 }
+.reorder-item:last-child { border-bottom: none; }
 .reorder-item .input { flex: 1 1 auto; min-width: 0; }
-.reorder-item-label { flex: 1 1 auto; font-size: 14px; font-weight: 700; }
-.reorder-item .player-card-seat { flex: 0 0 auto; }
+.reorder-item-label { flex: 1 1 auto; font: var(--type-body-md); }
 
 .name-row { flex-wrap: wrap; }
+.name-row-seat {
+  width: 34px;
+  flex: none;
+  font: var(--type-caption);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
 .name-pool-chips {
   flex: 1 1 100%;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
-  padding: 0 0 var(--space-2) calc(var(--tap-min) + var(--space-2));
+  gap: var(--space-xs);
+  padding: var(--space-xs) 0 var(--space-xxs) calc(34px + var(--space-sm));
 }
 .name-pool-chips[hidden] { display: none; }
 
 .chip {
   display: inline-flex;
   align-items: center;
-  height: 28px;
-  padding: 0 var(--space-2);
-  border: 2px solid var(--color-divider);
-  border-radius: var(--radius-sm);
-  background: var(--color-neutral-200);
-  color: var(--color-text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
+  padding: var(--space-input) var(--space-sm);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-full);
+  background: var(--surface-card);
+  color: var(--text-body);
+  font: var(--type-caption);
+  font-family: var(--font-sans);
   cursor: pointer;
+  transition: var(--transition-surface);
 }
-.chip:hover { background: var(--color-neutral-300); }
+.chip:active { background: var(--surface-featured); }
 .chip.is-active {
-  border-color: var(--color-accent);
-  background: var(--color-accent-100);
-  color: var(--color-accent-700);
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary-active);
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -798,128 +887,192 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 .banner-actions { display: flex; gap: var(--space-2); }
 
 /* ══════════════════════════════════════════════════════════════════
-   设置向导 —— Step 1 骨架                     SPEC §4.1
+   设置向导 —— 四步共用外壳                     SPEC §4.1
+   顶部与底部固定，中段滚动；四屏各自渲染，但共用同一套外壳标记。
    ══════════════════════════════════════════════════════════════════ */
 .setup-screen {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-3);
+  min-height: 100dvh;
 }
-.setup-header {
+
+.setup-head {
+  flex: none;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: 20px 20px var(--space-md);
+  background: var(--canvas);
+}
+.setup-head-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-sm);
 }
-.setup-header h1 { margin: 0; font-size: 18px; }
+.setup-step-label { white-space: nowrap; }
+.setup-dots { display: flex; gap: 6px; }
+.setup-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--border-hairline);
+  transition: var(--transition-surface);
+}
+.setup-dot.is-done { background: var(--color-primary); }
+.setup-dot.is-current { width: 20px; background: var(--color-primary); }
 
-.btn-sm { min-height: 32px; padding: 0 var(--space-2); font-size: 12px; }
-.btn-ghost.is-active { background: var(--color-neutral-300); }
-.btn-secondary.is-active {
-  border-color: var(--color-accent);
-  background: var(--color-accent-100);
-  color: var(--color-accent-700);
+.setup-title { font: var(--type-heading-2); letter-spacing: var(--tracking-heading-2); }
+.setup-sub { font: var(--type-body-sm); color: var(--text-muted); }
+
+.setup-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 0 20px var(--space-lg);
 }
 
-.field-row {
+.setup-foot {
+  flex: none;
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 20px 20px;
+  background: var(--canvas);
+  border-top: 1px solid var(--border-hairline);
+}
+.setup-foot-spacer { flex: 1; }
+
+/* ── Step 1：人数与角色牌 ── */
+.count-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-sm);
 }
-.field-label { font-size: 14px; font-weight: 700; }
-
-.stepper { display: flex; align-items: center; gap: var(--space-2); }
+.count-label { font: var(--type-title); letter-spacing: var(--tracking-title); }
+.stepper { display: flex; align-items: center; gap: 10px; }
 .stepper-value {
-  min-width: 2em;
+  min-width: 44px;
   text-align: center;
-  font-weight: 700;
+  font: var(--type-heading-3);
+  letter-spacing: var(--tracking-heading-3);
   font-variant-numeric: tabular-nums;
 }
 
-.preset-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.preset-row { display: flex; flex-wrap: wrap; gap: var(--space-xs); align-items: center; }
 
-.role-groups { display: flex; flex-direction: column; gap: var(--space-4); }
-.camp-group-title {
-  margin: 0 0 var(--space-2);
-  padding-bottom: var(--space-1);
-  border-bottom: 2px solid var(--color-divider);
-  font-size: 13px;
-  color: var(--color-neutral-600);
-}
+.role-count { font: var(--type-caption); color: var(--accent-orange); }
+.role-count.is-met { color: var(--accent-green); }
+
+.role-groups { display: flex; flex-direction: column; gap: 20px; }
+
 .role-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-divider);
+  gap: var(--space-sm);
+  padding: 10px var(--space-md);
+  border-bottom: 1px solid var(--border-hairline);
 }
-.role-row-name { font-size: 14px; }
+.role-row:last-child { border-bottom: none; }
+.role-row-name { flex: 1; min-width: 0; font: var(--type-body-md); }
+.role-row-count {
+  min-width: 26px;
+  text-align: center;
+  font: var(--type-body-md);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+.role-row-count.is-set { color: var(--text-body); }
+/* 未选中的角色底板转为浅灰，使已配置的角色在长列表中先被看见 */
+.role-tile.is-unset { background: var(--text-faint); }
 
-.setup-footer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  padding-top: var(--space-2);
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   设置向导 —— Step 3 骨架（夜晚顺序 / 计时 / 高级规则） SPEC §4.1 / §7
-   ══════════════════════════════════════════════════════════════════ */
-.advanced-rules {
-  border: 2px solid var(--color-divider);
-  padding: var(--space-3);
-}
+/* ── Step 3：夜晚顺序 / 计时 / 高级规则 ── */
+.advanced-rules { padding: 0; }
 .advanced-rules summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-md);
   cursor: pointer;
-  font-weight: 700;
+  font: var(--type-body-md);
+  list-style: none;
 }
-.advanced-rules summary::-webkit-details-marker { color: var(--color-neutral-600); }
+.advanced-rules summary::-webkit-details-marker { display: none; }
+.advanced-rules[open] summary { border-bottom: 1px solid var(--border-hairline); }
+.advanced-rules-body { padding: 0 var(--space-md); }
 
 .toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-divider);
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--border-hairline);
 }
 .toggle-row:last-child { border-bottom: none; }
-.toggle-row-label { font-size: 13px; }
+.toggle-row-label { font: var(--type-body-md); }
+.toggle-row-hint { font: var(--type-caption); color: var(--text-muted); }
 
-.switch { display: inline-flex; align-items: center; }
-.switch input { width: 20px; height: 20px; accent-color: var(--color-accent); cursor: pointer; }
+.switch { display: inline-flex; align-items: center; flex: none; }
+.switch input { width: 20px; height: 20px; accent-color: var(--color-primary); cursor: pointer; }
 
-.segmented { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.segmented { display: flex; flex-wrap: wrap; gap: var(--space-xxs); }
+.btn-utility.is-active {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary-active);
+}
 
-/* ══════════════════════════════════════════════════════════════════
-   设置向导 —— Step 4 身份分配                 SPEC §4.1 / §8.4
-   ══════════════════════════════════════════════════════════════════ */
-.role-row-select {
+.timer-field {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.timer-field:last-child { border-bottom: none; }
+
+/* ── Step 4：身份分配 ── */
+.assign-grid { display: grid; gap: 10px; }
+.assign-grid[data-columns="3"] { grid-template-columns: repeat(3, 1fr); }
+.assign-grid[data-columns="4"] { grid-template-columns: repeat(4, 1fr); }
+
+.role-row-select {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
   width: 100%;
-  padding: var(--space-2) 0;
+  padding: 10px var(--space-md);
   border: none;
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--border-hairline);
   background: none;
-  color: var(--color-text);
-  font: inherit;
+  color: var(--text-body);
+  font: var(--type-body-md);
+  font-family: var(--font-sans);
   text-align: left;
   cursor: pointer;
+  transition: var(--transition-surface);
 }
-.role-row-select:hover { background: var(--color-neutral-100); }
-.role-row-select:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.role-row-select:last-child { border-bottom: none; }
+.role-row-select:active { background: var(--surface-featured); }
+.role-row-select:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.role-row-select-meta { font: var(--type-caption); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ══════════════════════════════════════════════════════════════════
-   通用占位屏 —— Step 2–4 / 局内 / 日志 / 战报的正式内容见各自票
+   通用占位屏 —— 局内 / 日志 / 战报的正式内容见各自小节
    ══════════════════════════════════════════════════════════════════ */
-.wrap { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-3); }
-.note { color: var(--color-neutral-600); font-size: 13px; }
-.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.wrap { display: flex; flex-direction: column; gap: var(--space-md); padding: var(--space-sm); }
+.note { color: var(--text-muted); font: var(--type-body-sm); }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 
 /* ══════════════════════════════════════════════════════════════════
    夜晚步骤面板                                SPEC §4.2 / §9 / §12.1

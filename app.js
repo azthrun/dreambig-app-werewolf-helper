@@ -279,6 +279,59 @@ function render() {
   }
 }
 
+/** 图标 —— icons.svg sprite。SPEC §12.5 */
+function icon(name, cls = '') {
+  return `<svg class="icon${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#icon-${name}"></use></svg>`;
+}
+
+/** 角色图标底板 —— 以阵营色区分，卡片另有身份文字。SPEC §12.5 */
+function roleTile(role, { unset = false, cls = '' } = {}) {
+  const camp = role ? { [CAMP.WOLF]: 'camp-wolf', [CAMP.GOD]: 'camp-god', [CAMP.CIV]: 'camp-civ' }[role.camp] : '';
+  return `<span class="role-tile ${unset ? 'is-unset' : camp}${cls ? ' ' + cls : ''}">${icon(role ? role.icon.replace('icon-', '') : 'user')}</span>`;
+}
+
+const SETUP_TITLE = ['局型配置', '玩家名单', '流程与规则', '分配身份'];
+const SETUP_SUB = [
+  '选择人数与本局使用的角色牌',
+  '座位固定，姓名可上下调整',
+  '夜晚顺序、计时默认值与房规',
+  '点座位再点角色，或一键随机',
+];
+
+/** 四步共用的向导页眉：步骤计数 + 进度点 + 标题 + 副标题。SPEC §4.1 */
+function setupHeadHtml(step) {
+  const dots = [1, 2, 3, 4].map(i => {
+    const cls = i === step ? 'is-current' : i < step ? 'is-done' : '';
+    return `<span class="setup-dot${cls ? ' ' + cls : ''}"></span>`;
+  }).join('');
+  return `
+    <div class="setup-head">
+      <div class="setup-head-row">
+        <span class="eyebrow setup-step-label">步骤 ${step} / 4</span>
+        <div class="setup-dots">${dots}</div>
+      </div>
+      <div class="setup-title">${SETUP_TITLE[step - 1]}</div>
+      <div class="setup-sub">${SETUP_SUB[step - 1]}</div>
+    </div>
+  `;
+}
+
+/** 四步共用的向导页脚：上一步 + 下一步 / 开始游戏。SPEC §4.1 */
+function setupFootHtml(step, { nextAction, nextDisabled = false } = {}) {
+  const prev = step > 1
+    ? `<button type="button" class="btn btn-secondary" data-action="goto-setup${step - 1}">${icon('chevron-left')}上一步</button>`
+    : '';
+  const label = step === 4 ? '开始游戏' : '下一步';
+  const nextIcon = step === 4 ? 'play' : 'chevron-right';
+  return `
+    <div class="setup-foot">
+      ${prev}
+      <span class="setup-foot-spacer"></span>
+      <button type="button" class="btn btn-lg" data-action="${nextAction}"${nextDisabled ? ' disabled' : ''}>${label}${icon(nextIcon)}</button>
+    </div>
+  `;
+}
+
 /** 设置 Step 1 —— 人数与角色牌配置。SPEC §4.1 */
 function renderSetup1() {
   const host = document.getElementById('screen-setup1');
@@ -299,52 +352,62 @@ function renderSetup1() {
     </div>
   ` : '';
 
+  const campDot = { [CAMP.WOLF]: 'camp-wolf', [CAMP.GOD]: 'camp-god', [CAMP.CIV]: 'camp-civ' };
   const rolesHtml = [CAMP.WOLF, CAMP.GOD, CAMP.CIV].map(camp => `
-    <div class="camp-group">
-      <h3 class="camp-group-title">${CAMP_NAME[camp]}</h3>
-      ${ROLES.filter(r => r.camp === camp).map(r => `
+    <div class="card card-flush">
+      <div class="card-head">
+        <span class="camp-dot ${campDot[camp]}"></span>
+        <span>${CAMP_NAME[camp]}</span>
+      </div>
+      ${ROLES.filter(r => r.camp === camp).map(r => {
+        const count = state.roleCounts[r.id] ?? 0;
+        return `
         <div class="role-row">
+          ${roleTile(r, { unset: count === 0 })}
           <span class="role-row-name">${r.name}</span>
           <div class="stepper">
-            <button type="button" class="btn btn-icon" data-action="role-dec" data-role="${r.id}" aria-label="减少${r.name}">−</button>
-            <span class="stepper-value">${state.roleCounts[r.id] ?? 0}</span>
-            <button type="button" class="btn btn-icon" data-action="role-inc" data-role="${r.id}" aria-label="增加${r.name}">+</button>
+            <button type="button" class="btn btn-icon btn-icon-sm" data-action="role-dec" data-role="${r.id}" aria-label="减少${r.name}">${icon('minus')}</button>
+            <span class="role-row-count${count > 0 ? ' is-set' : ''}">${count}</span>
+            <button type="button" class="btn btn-icon btn-icon-sm" data-action="role-inc" data-role="${r.id}" aria-label="增加${r.name}">${icon('plus')}</button>
           </div>
-        </div>
-      `).join('')}
+        </div>`;
+      }).join('')}
     </div>
   `).join('');
 
   host.innerHTML = `
     <div class="setup-screen">
-      ${bannerHtml}
-      <header class="setup-header">
-        <h1>局型配置</h1>
-      </header>
+      ${setupHeadHtml(1)}
 
-      <div class="field-row">
-        <span class="field-label">人数</span>
-        <div class="stepper">
-          <button type="button" class="btn btn-icon" data-action="player-count-dec" aria-label="减少人数">−</button>
-          <span class="stepper-value">${state.playerCount}</span>
-          <button type="button" class="btn btn-icon" data-action="player-count-inc" aria-label="增加人数">+</button>
+      <div class="setup-body">
+        ${bannerHtml}
+
+        <div class="card">
+          <div class="count-row">
+            <span class="count-label">人数</span>
+            <div class="stepper">
+              <button type="button" class="btn btn-icon" data-action="player-count-dec" aria-label="减少人数">${icon('minus')}</button>
+              <span class="stepper-value">${state.playerCount}</span>
+              <button type="button" class="btn btn-icon" data-action="player-count-inc" aria-label="增加人数">${icon('plus')}</button>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="preset-row">
+            <button type="button" class="btn btn-utility" data-action="apply-preset" data-preset="9">9人标准局</button>
+            <button type="button" class="btn btn-utility" data-action="apply-preset" data-preset="12">12人标准局</button>
+            <button type="button" class="btn btn-icon btn-icon-xs btn-longpress" data-action="clear-roles" data-longpress="true" aria-label="清空角色配置">${icon('eraser')}</button>
+          </div>
         </div>
+
+        <div class="count-row">
+          <span class="eyebrow">角色牌</span>
+          <span class="role-count${mismatch ? '' : ' is-met'}">已选 ${selected} / 需 ${state.playerCount} 人</span>
+        </div>
+
+        <div class="role-groups">${rolesHtml}</div>
       </div>
 
-      <div class="preset-row">
-        <button type="button" class="btn btn-secondary" data-action="apply-preset" data-preset="9">9人标准局</button>
-        <button type="button" class="btn btn-secondary" data-action="apply-preset" data-preset="12">12人标准局</button>
-        <button type="button" class="btn btn-secondary btn-longpress" data-action="clear-roles" data-longpress="true">
-          <span>清空角色配置</span>
-        </button>
-      </div>
-
-      <div class="role-groups">${rolesHtml}</div>
-
-      <div class="setup-footer">
-        <span class="tag${mismatch ? ' tag-accent' : ''}">已选 ${selected} / 需 ${state.playerCount} 人</span>
-        <button type="button" class="btn btn-primary btn-block" data-action="goto-setup2">下一步</button>
-      </div>
+      ${setupFootHtml(1, { nextAction: 'goto-setup2' })}
     </div>
   `;
 
@@ -360,8 +423,8 @@ function renderSetup2() {
 
   const rosterHtml = state.players.map(p => `
     <div class="reorder-item name-row" data-seat="${p.seat}">
-      <button type="button" class="drag-handle" aria-label="拖拽调整座位${p.seat}的姓名分配">⠿</button>
-      <span class="player-card-seat">${p.seat}号</span>
+      <button type="button" class="drag-handle" aria-label="拖拽调整座位${p.seat}的姓名分配">${icon('grip-vertical')}</button>
+      <span class="name-row-seat">${p.seat}号</span>
       <input type="text" class="input" data-action="edit-name" data-seat="${p.seat}"
              value="${escapeAttr(p.name)}" placeholder="座位${p.seat}" maxlength="12" autocomplete="off">
       <div class="name-pool-chips" hidden>
@@ -373,28 +436,25 @@ function renderSetup2() {
   `).join('');
 
   const lastRosterHtml = namePool.lastRoster.length ? `
-    <button type="button" class="btn btn-secondary" data-action="apply-last-roster">沿用上次名单</button>
+    <button type="button" class="btn btn-utility" data-action="apply-last-roster">${icon('rotate-ccw')}沿用上次名单</button>
   ` : '';
 
   host.innerHTML = `
     <div class="setup-screen">
-      <header class="setup-header"><h1>玩家名单</h1></header>
+      ${setupHeadHtml(2)}
 
-      <div class="preset-row">
-        ${lastRosterHtml}
-        <button type="button" class="btn btn-secondary btn-longpress" data-action="clear-names" data-longpress="true">
-          <span>清空已存姓名</span>
-        </button>
-      </div>
-
-      <div class="reorder-list" id="name-reorder-list">${rosterHtml}</div>
-
-      <div class="setup-footer">
-        <div class="actions">
-          <button type="button" class="btn btn-secondary" data-action="goto-setup1">‹ 上一步</button>
-          <button type="button" class="btn btn-primary" data-action="goto-setup3">下一步 ›</button>
+      <div class="setup-body">
+        <div class="preset-row">
+          ${lastRosterHtml}
+          <button type="button" class="btn btn-utility btn-longpress" data-action="clear-names" data-longpress="true">
+            ${icon('trash-2')}<span>清空已存姓名</span>
+          </button>
         </div>
+
+        <div class="card card-flush reorder-list" id="name-reorder-list">${rosterHtml}</div>
       </div>
+
+      ${setupFootHtml(2, { nextAction: 'goto-setup3' })}
     </div>
   `;
 
@@ -408,88 +468,92 @@ function renderSetup3() {
   if (!host) return;
 
   const activeSteps = activeNightStepsForSetup(state);
-  const stepsHtml = activeSteps.length ? activeSteps.map(id => `
+  const stepsHtml = activeSteps.length ? activeSteps.map(id => {
+    const role = ROLES.find(r => r.nightStep === id) || null;
+    return `
     <div class="reorder-item" data-step="${id}">
-      <button type="button" class="drag-handle" aria-label="拖拽调整${STEP_META[id].name}顺序">⠿</button>
+      <button type="button" class="drag-handle" aria-label="拖拽调整${STEP_META[id].name}顺序">${icon('grip-vertical')}</button>
+      ${role ? roleTile(role) : `<span class="role-tile camp-god">${icon('moon')}</span>`}
       <span class="reorder-item-label">${STEP_META[id].name}</span>
-    </div>
-  `).join('') : '<p class="note">当前局型没有夜晚行动步骤</p>';
+    </div>`;
+  }).join('') : '<p class="note">当前局型没有夜晚行动步骤</p>';
 
   const rules = state.rules;
   const settings = state.settings;
 
+
+  const ruleToggle = (label, hint, action, key, checked) => `
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-row-label">${label}</div>
+            <div class="toggle-row-hint">${hint}</div>
+          </div>
+          <label class="switch"><input type="checkbox" data-action="${action}" data-${action === 'toggle-rule' ? 'rule' : 'setting'}="${key}" ${checked ? 'checked' : ''}></label>
+        </div>`;
+
   host.innerHTML = `
     <div class="setup-screen">
-      <header class="setup-header"><h1>夜晚顺序与计时</h1></header>
+      ${setupHeadHtml(3)}
 
-      <div class="field-row">
-        <span class="field-label">夜晚顺序</span>
-        <button type="button" class="btn btn-secondary btn-sm" data-action="reset-night-order">恢复默认顺序</button>
-      </div>
-      <div class="reorder-list" id="night-order-list">${stepsHtml}</div>
-
-      <div class="field-row">
-        <span class="field-label">白天讨论默认时长</span>
-        <div class="stepper">
-          <button type="button" class="btn btn-icon" data-action="day-timer-dec" aria-label="减少白天讨论时长">−</button>
-          <span class="stepper-value">${settings.dayTimerDefault}s</span>
-          <button type="button" class="btn btn-icon" data-action="day-timer-inc" aria-label="增加白天讨论时长">+</button>
-        </div>
-      </div>
-      <div class="field-row">
-        <span class="field-label">夜晚行动默认时长</span>
-        <div class="stepper">
-          <button type="button" class="btn btn-icon" data-action="night-timer-dec" aria-label="减少夜晚行动时长">−</button>
-          <span class="stepper-value">${settings.nightTimerDefault}s</span>
-          <button type="button" class="btn btn-icon" data-action="night-timer-inc" aria-label="增加夜晚行动时长">+</button>
-        </div>
-      </div>
-
-      <details class="advanced-rules" id="advanced-rules"${advancedRulesOpen ? ' open' : ''}>
-        <summary>高级规则</summary>
-
-        <div class="toggle-row">
-          <span class="toggle-row-label">同守同救结果 → 死亡</span>
-          <label class="switch"><input type="checkbox" data-action="toggle-rule" data-rule="doubleProtectKills" ${rules.doubleProtectKills ? 'checked' : ''}></label>
+      <div class="setup-body">
+        <div class="card card-flush">
+          <div class="card-head" style="justify-content:space-between">
+            <span>夜晚顺序</span>
+            <button type="button" class="btn btn-utility" data-action="reset-night-order">恢复默认</button>
+          </div>
+          <div class="reorder-list" id="night-order-list">${stepsHtml}</div>
         </div>
 
-        <div class="toggle-row">
-          <span class="toggle-row-label">女巫自救</span>
-          <div class="segmented" role="group" aria-label="女巫自救">
-            ${['never', 'firstNightOnly', 'always'].map(v => `
-              <button type="button" class="btn btn-ghost btn-sm${rules.witchSelfSave === v ? ' is-active' : ''}"
-                      data-action="set-witch-self-save" data-value="${v}">${WITCH_SELF_SAVE_LABEL[v]}</button>
-            `).join('')}
+        <div class="card">
+          <div class="eyebrow">计时默认值</div>
+          <div class="timer-field">
+            <span>白天讨论</span>
+            <div class="stepper">
+              <button type="button" class="btn btn-icon btn-icon-sm" data-action="day-timer-dec" aria-label="减少白天讨论时长">${icon('minus')}</button>
+              <span class="stepper-value">${settings.dayTimerDefault}s</span>
+              <button type="button" class="btn btn-icon btn-icon-sm" data-action="day-timer-inc" aria-label="增加白天讨论时长">${icon('plus')}</button>
+            </div>
+          </div>
+          <div class="timer-field">
+            <span>夜晚行动</span>
+            <div class="stepper">
+              <button type="button" class="btn btn-icon btn-icon-sm" data-action="night-timer-dec" aria-label="减少夜晚行动时长">${icon('minus')}</button>
+              <span class="stepper-value">${settings.nightTimerDefault}s</span>
+              <button type="button" class="btn btn-icon btn-icon-sm" data-action="night-timer-inc" aria-label="增加夜晚行动时长">${icon('plus')}</button>
+            </div>
           </div>
         </div>
 
-        <div class="toggle-row">
-          <span class="toggle-row-label">允许守卫连守</span>
-          <label class="switch"><input type="checkbox" data-action="toggle-rule" data-rule="guardRepeatAllowed" ${rules.guardRepeatAllowed ? 'checked' : ''}></label>
-        </div>
+        <details class="card card-flush advanced-rules" id="advanced-rules"${advancedRulesOpen ? ' open' : ''}>
+          <summary>
+            <span>高级规则</span>
+            ${icon(advancedRulesOpen ? 'chevron-up' : 'chevron-down')}
+          </summary>
+          <div class="advanced-rules-body">
+            ${ruleToggle('同守同救致死', '守卫与解药同时作用于同一人时判定死亡', 'toggle-rule', 'doubleProtectKills', rules.doubleProtectKills)}
 
-        <div class="toggle-row">
-          <span class="toggle-row-label">非常规死亡抑制开枪</span>
-          <label class="switch"><input type="checkbox" data-action="toggle-rule" data-rule="abnormalDeathBlocksShot" ${rules.abnormalDeathBlocksShot ? 'checked' : ''}></label>
-        </div>
+            <div class="toggle-row">
+              <div>
+                <div class="toggle-row-label">女巫自救</div>
+                <div class="toggle-row-hint">首夜、始终或不可</div>
+              </div>
+              <div class="segmented" role="group" aria-label="女巫自救">
+                ${['never', 'firstNightOnly', 'always'].map(v => `
+                  <button type="button" class="btn btn-utility${rules.witchSelfSave === v ? ' is-active' : ''}"
+                          data-action="set-witch-self-save" data-value="${v}">${WITCH_SELF_SAVE_LABEL[v]}</button>
+                `).join('')}
+              </div>
+            </div>
 
-        <div class="toggle-row">
-          <span class="toggle-row-label">每日随机首发言</span>
-          <label class="switch"><input type="checkbox" data-action="toggle-setting" data-setting="randomFirstSpeaker" ${settings.randomFirstSpeaker ? 'checked' : ''}></label>
-        </div>
-
-        <div class="toggle-row">
-          <span class="toggle-row-label">提示音</span>
-          <label class="switch"><input type="checkbox" data-action="toggle-setting" data-setting="soundEnabled" ${settings.soundEnabled ? 'checked' : ''}></label>
-        </div>
-      </details>
-
-      <div class="setup-footer">
-        <div class="actions">
-          <button type="button" class="btn btn-secondary" data-action="goto-setup2">‹ 上一步</button>
-          <button type="button" class="btn btn-primary" data-action="goto-setup4">下一步 ›</button>
-        </div>
+            ${ruleToggle('允许守卫连守', '关闭时连守仅提示，不阻断', 'toggle-rule', 'guardRepeatAllowed', rules.guardRepeatAllowed)}
+            ${ruleToggle('非常规死亡抑制开枪', '被毒、殉情不可开枪', 'toggle-rule', 'abnormalDeathBlocksShot', rules.abnormalDeathBlocksShot)}
+            ${ruleToggle('每日随机首发言', '天亮后自动抽取起始座位与方向', 'toggle-setting', 'randomFirstSpeaker', settings.randomFirstSpeaker)}
+            ${ruleToggle('提示音', '牌桌声响可能泄露信息，默认关闭', 'toggle-setting', 'soundEnabled', settings.soundEnabled)}
+          </div>
+        </details>
       </div>
+
+      ${setupFootHtml(3, { nextAction: 'goto-setup4' })}
     </div>
   `;
 
@@ -513,12 +577,14 @@ function renderSetup4() {
   const seatsHtml = state.players.map(p => {
     const role = p.roleId ? ROLE_MAP[p.roleId] : null;
     const isPicking = identitySelectedSeat === p.seat || loverPairFirstSeat === p.seat;
-    const loverTag = p.loverSeat != null ? `<span class="tag tag-outline">💕${p.loverSeat}号</span>` : '';
+    const loverTag = p.loverSeat != null
+      ? `<span class="player-card-lover">${icon('lover')}${p.loverSeat}号</span>` : '';
     return `
       <button type="button"
               class="player-card is-selectable${isPicking ? ' is-selected' : ''}"
               data-action="select-seat4" data-seat="${p.seat}">
         <span class="player-card-seat">${p.seat}号</span>
+        ${roleTile(role, { unset: !role })}
         <span class="player-card-name">${p.name || `座位${p.seat}`}</span>
         <span class="player-card-role">${role ? role.name : '未知身份'}</span>
         ${loverTag}
@@ -535,20 +601,28 @@ function renderSetup4() {
       </div>
     </div>
     <div class="role-groups">
-      ${[CAMP.WOLF, CAMP.GOD, CAMP.CIV].map(camp => `
-        <div class="camp-group">
-          <h3 class="camp-group-title">${CAMP_NAME[camp]}</h3>
-          ${ROLES.filter(r => r.camp === camp && (state.roleCounts[r.id] ?? 0) > 0).map(r => {
-            const remaining = (state.roleCounts[r.id] ?? 0) - (assignedByRole[r.id] ?? 0);
+      ${[CAMP.WOLF, CAMP.GOD, CAMP.CIV].map(camp => {
+        const rows = ROLES.filter(r => r.camp === camp && (state.roleCounts[r.id] ?? 0) > 0);
+        if (!rows.length) return '';
+        return `
+        <div class="card card-flush">
+          <div class="card-head">
+            <span class="camp-dot ${{ [CAMP.WOLF]: 'camp-wolf', [CAMP.GOD]: 'camp-god', [CAMP.CIV]: 'camp-civ' }[camp]}"></span>
+            <span>${CAMP_NAME[camp]}</span>
+          </div>
+          ${rows.map(r => {
+            const total = state.roleCounts[r.id] ?? 0;
+            const used = assignedByRole[r.id] ?? 0;
             return `
-              <button type="button" class="role-row-select" data-action="assign-role4" data-role="${r.id}">
+              <button type="button" class="role-row-select" data-action="assign-role4" data-role="${r.id}"${used >= total ? ' disabled' : ''}>
+                ${roleTile(r, { unset: used >= total })}
                 <span class="role-row-name">${r.name}</span>
-                <span class="tag${remaining <= 0 ? ' tag-outline' : ''}">剩余 ${remaining}</span>
+                <span class="role-row-select-meta">${used} / ${total}</span>
               </button>
             `;
           }).join('')}
-        </div>
-      `).join('')}
+        </div>`;
+      }).join('')}
     </div>
   ` : '';
 
@@ -563,30 +637,29 @@ function renderSetup4() {
 
   host.innerHTML = `
     <div class="setup-screen">
-      <header class="setup-header">
-        <h1>分配身份</h1>
-        <span class="tag">已分配 ${assigned} / ${state.playerCount}</span>
-      </header>
+      ${setupHeadHtml(4)}
 
-      <div class="preset-row">
-        <button type="button" class="btn btn-secondary" data-action="assign-random-roles">随机分配剩余身份</button>
-        ${(state.roleCounts.cupid ?? 0) > 0 ? `
-          <button type="button" class="btn btn-secondary${loverPairMode ? ' is-active' : ''}" data-action="toggle-lover-mode">设为情侣</button>
-        ` : ''}
-      </div>
-
-      ${loverBannerHtml}
-
-      <div class="player-grid" data-columns="${columnsForCount(state.playerCount)}">${seatsHtml}</div>
-
-      ${rolePickerHtml}
-
-      <div class="setup-footer">
-        <div class="actions">
-          <button type="button" class="btn btn-secondary" data-action="goto-setup3">‹ 上一步</button>
-          <button type="button" class="btn btn-primary btn-block" data-action="start-game">开始游戏</button>
+      <div class="setup-body">
+        <div class="count-row">
+          <span class="eyebrow">身份分配</span>
+          <span class="role-count${assigned === state.playerCount ? ' is-met' : ''}">已分配 ${assigned} / ${state.playerCount}</span>
         </div>
+
+        <div class="preset-row">
+          <button type="button" class="btn btn-utility" data-action="assign-random-roles">${icon('shuffle')}随机分配剩余身份</button>
+          ${(state.roleCounts.cupid ?? 0) > 0 ? `
+            <button type="button" class="btn btn-utility${loverPairMode ? ' is-active' : ''}" data-action="toggle-lover-mode">${icon('lover')}设为情侣</button>
+          ` : ''}
+        </div>
+
+        ${loverBannerHtml}
+
+        <div class="assign-grid" data-columns="${state.playerCount <= 9 ? 3 : 4}">${seatsHtml}</div>
+
+        ${rolePickerHtml}
       </div>
+
+      ${setupFootHtml(4, { nextAction: 'start-game' })}
     </div>
   `;
 }
