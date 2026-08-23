@@ -1037,7 +1037,8 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
   color: var(--text-secondary);
 }
 .banner-inline .icon { color: var(--color-primary); flex: none; }
-.banner-inline-text { flex: 1; min-width: 0; }
+/* min-width 逼迫按钮组在窄屏换行，否则文本会被挤成每行一字 */
+.banner-inline-text { flex: 1 1 auto; min-width: 55%; }
 .banner-actions { display: flex; gap: var(--space-xs); flex: none; }
 
 /* 需要法官注意但非错误的横幅（首发言抽取、白天主动行为引导） */

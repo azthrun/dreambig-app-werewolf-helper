@@ -341,13 +341,14 @@ function renderSetup1() {
   const mismatch = selected !== state.playerCount;
 
   const bannerHtml = pendingResume ? `
-    <div class="banner-inline" role="status">
-      <span>检测到未完成的对局（第${pendingResume.day}${pendingResume.phase === 'night' ? '晚' : '天'}） · 继续 / 放弃</span>
+    <div class="banner-inline is-accent" role="status">
+      ${icon('rotate-ccw')}
+      <span class="banner-inline-text">检测到未完成的对局（第${pendingResume.day}${pendingResume.phase === 'night' ? '晚' : '天'}）</span>
       <div class="banner-actions">
-        <button type="button" class="btn btn-secondary" data-action="resume-game">继续</button>
-        <button type="button" class="btn btn-secondary btn-longpress" data-action="discard-game" data-longpress="true">
+        <button type="button" class="btn btn-utility btn-longpress" data-action="discard-game" data-longpress="true">
           <span>放弃</span>
         </button>
+        <button type="button" class="btn btn-sm" data-action="resume-game">续接</button>
       </div>
     </div>
   ` : '';
@@ -691,11 +692,10 @@ function renderAlertBanner() {
   }
   host.hidden = false;
   host.innerHTML = `
-    <div class="banner-inline" role="alert">
-      <span>⚠ ${escapeText(current.text)}</span>
-      <div class="banner-actions">
-        <button type="button" class="btn btn-secondary btn-sm" data-action="dismiss-alert">知道了</button>
-      </div>
+    <div class="alert-banner-inner" role="alert">
+      ${icon('triangle-alert')}
+      <span class="alert-banner-text">${escapeText(current.text)}</span>
+      <button type="button" class="btn btn-utility" data-action="dismiss-alert">知道了</button>
     </div>
   `;
 }
@@ -965,11 +965,12 @@ function renderFirstSpeakerBannerHtml() {
   if (t.running || t.pausedRemaining != null || t.speechStarted) return '';
   const dirLabel = t.speechDirection === 1 ? '顺时针' : '逆时针';
   return `
-    <div class="banner-inline" role="status">
-      <span>本轮发言：${t.speechSeat}号 开始 · ${dirLabel}</span>
+    <div class="banner-inline is-accent" role="status">
+      ${icon('sparkles')}
+      <span class="banner-inline-text">本轮发言：<strong>${t.speechSeat}号</strong> 开始 · ${dirLabel}</span>
       <div class="banner-actions">
-        <button type="button" class="btn btn-secondary btn-sm" data-action="redraw-first-speaker">重新抽取</button>
-        <button type="button" class="btn btn-primary btn-sm" data-action="start-speech-timer">开始发言</button>
+        <button type="button" class="btn btn-utility" data-action="redraw-first-speaker">${icon('shuffle')}重新抽取</button>
+        <button type="button" class="btn btn-sm" data-action="start-speech-timer">开始发言</button>
       </div>
     </div>
   `;
@@ -1535,7 +1536,7 @@ function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats
             <span class="player-card-role">${escapeText(roleName)}</span>
             <span class="tag tag-accent">${escapeText(p.deathReason || '其他')}</span>
             <div class="player-card-expanded-actions">
-              <button type="button" class="btn btn-primary btn-sm" data-action="revive-game" data-seat="${p.seat}">恢复存活</button>
+              <button type="button" class="btn btn-utility" data-action="revive-game" data-seat="${p.seat}">${icon('heart-pulse')}恢复存活</button>
             </div>
           </div>
         </div>
@@ -1669,10 +1670,11 @@ function renderRoleEditPanelHtml(seat) {
   }
   return `
     <div class="banner-inline" role="status">
-      <span>为 ${seat}号 选择身份</span>
+      ${icon('pencil')}
+      <span class="banner-inline-text">为 <strong>${seat}号</strong> 选择身份</span>
       <div class="banner-actions">
-        <button type="button" class="btn btn-ghost btn-sm" data-action="clear-role-game" data-seat="${seat}">清除身份</button>
-        <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-role-edit-game">取消</button>
+        <button type="button" class="btn btn-utility" data-action="clear-role-game" data-seat="${seat}">${icon('eraser')}清除</button>
+        <button type="button" class="btn btn-utility" data-action="cancel-role-edit-game">取消</button>
       </div>
     </div>
     <div class="role-groups">
@@ -3165,7 +3167,7 @@ function showUndoBar(text) {
   bar.hidden = false;
   bar.innerHTML = `
     <span class="undo-bar-text">${escapeText(text)}</span>
-    <button type="button" class="btn btn-ghost btn-sm" data-action="undo-bar-undo">撤销</button>
+    <button type="button" class="btn btn-utility" data-action="undo-bar-undo">${icon('undo-2')}撤销</button>
   `;
   undoBarTimer = setTimeout(hideUndoBar, UNDO_BAR_MS);
 }
