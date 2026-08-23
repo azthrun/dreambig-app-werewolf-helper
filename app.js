@@ -705,17 +705,31 @@ function renderGameHeader() {
   const header = document.getElementById('game-header');
   if (!header) return;
   const counts = campCounts(state);
+  const chips = [
+    ['camp-wolf', `狼 ${counts.wolf}`],
+    ['camp-god', `神 ${counts.god}`],
+    ['camp-civ', `民 ${counts.civ}`],
+  ];
+  if (counts.unknown > 0) chips.push(['', `未知 ${counts.unknown}（不可尽信）`]);
+
   header.innerHTML = `
     <div class="game-header-row">
-      <div class="game-header-title-group">
-        <h1 class="game-header-title">第${state.day}${state.phase === 'night' ? '晚' : '天'}</h1>
-        <span class="camp-count"${counts.unknown > 0 ? ' data-has-unknown="true"' : ''} aria-label="阵营计数，仅统计身份已知且存活的玩家">${campCountLabel(counts)}</span>
+      <div class="game-header-main">
+        <div class="game-header-phase">
+          ${icon(state.phase === 'night' ? 'moon' : 'sun')}
+          <h1 class="game-header-title">第${state.day}${state.phase === 'night' ? '晚' : '天'}</h1>
+        </div>
+        <div class="camp-chips" aria-label="阵营计数，仅统计身份已知且存活的玩家">
+          ${chips.map(([cls, label]) => `
+            <span class="camp-chip">${cls ? `<span class="camp-dot ${cls}"></span>` : ''}${label}</span>
+          `).join('')}
+        </div>
       </div>
-      <div class="actions">
-        <button type="button" class="btn btn-icon" data-action="undo" aria-label="撤销">↶</button>
-        <button type="button" class="btn btn-secondary" data-action="goto-log">日志</button>
-        <button type="button" class="btn btn-secondary btn-longpress" data-action="end-game" data-longpress="true">
-          <span>长按结束</span>
+      <div class="game-header-actions">
+        <button type="button" class="btn btn-icon" data-action="undo" aria-label="撤销">${icon('undo-2')}</button>
+        <button type="button" class="btn btn-icon" data-action="goto-log" aria-label="日志">${icon('scroll-text')}</button>
+        <button type="button" class="btn btn-icon btn-longpress" data-action="end-game" data-longpress="true" aria-label="长按结束">
+          <span>${icon('flag')}</span>
         </button>
       </div>
     </div>
@@ -743,25 +757,26 @@ function renderTimerRowHtml() {
   const running = t.running;
   const paused = !running && t.pausedRemaining != null;
   const toggleLabel = running ? '暂停' : '开始';
-  const toggleGlyph = running ? '⏸' : '▶';
+  const toggleGlyph = running ? 'pause' : 'play';
   const toggleDisabled = !running && !paused && t.mode === 'speech' && t.speechSeat == null;
 
   const modeTabsHtml = `
     <div class="timer-mode-tabs" role="group" aria-label="计时模式">
-      <button type="button" class="btn btn-ghost btn-sm${t.mode === 'free' ? ' is-active' : ''}" data-action="set-timer-mode" data-mode="free">自由</button>
-      <button type="button" class="btn btn-ghost btn-sm${t.mode === 'speech' ? ' is-active' : ''}" data-action="set-timer-mode" data-mode="speech">发言</button>
+      <button type="button" class="timer-mode-tab${t.mode === 'free' ? ' is-active' : ''}" data-action="set-timer-mode" data-mode="free">自由</button>
+      <button type="button" class="timer-mode-tab${t.mode === 'speech' ? ' is-active' : ''}" data-action="set-timer-mode" data-mode="speech">发言</button>
     </div>
   `;
 
   const subRowHtml = t.mode === 'free' ? `
     <div class="timer-presets">
-      ${[30, 60, 90, 120, 180].map(s => `<button type="button" class="chip" data-action="timer-preset" data-seconds="${s}">${s}s</button>`).join('')}
+      ${[30, 60, 90, 120, 180].map(s => `<button type="button" class="timer-preset" data-action="timer-preset" data-seconds="${s}">${s}s</button>`).join('')}
     </div>
   ` : `
     <div class="speech-controls">
-      <span class="speech-current">${t.speechSeat != null ? `${t.speechSeat}号发言中 · ${t.speechDirection === 1 ? '顺时针' : '逆时针'}` : '尚未选定发言起点'}</span>
-      <button type="button" class="btn btn-secondary btn-sm" data-action="speech-prev" ${t.speechSeat == null ? 'disabled' : ''}>‹ 上一位</button>
-      <button type="button" class="btn btn-secondary btn-sm" data-action="speech-next" ${t.speechSeat == null ? 'disabled' : ''}>下一位 ›</button>
+      <span>当前发言 <strong class="speech-current">${t.speechSeat != null ? `${t.speechSeat}号` : '—'}</strong>${t.speechSeat != null ? ` · ${t.speechDirection === 1 ? '顺时针' : '逆时针'}` : ' · 尚未选定发言起点'}</span>
+      <span class="speech-spacer"></span>
+      <button type="button" class="btn btn-utility" data-action="speech-prev" ${t.speechSeat == null ? 'disabled' : ''}>上一位</button>
+      <button type="button" class="btn btn-utility" data-action="speech-next" ${t.speechSeat == null ? 'disabled' : ''}>下一位</button>
     </div>
   `;
 
@@ -770,9 +785,9 @@ function renderTimerRowHtml() {
       ${modeTabsHtml}
       <span id="timer-remaining" class="timer-remaining">${formatTimerMs(timerRemainingMs())}</span>
       <div class="timer-controls">
-        <button type="button" class="btn btn-icon" data-action="timer-toggle" aria-label="${toggleLabel}计时"${toggleDisabled ? ' disabled' : ''}>${toggleGlyph}</button>
-        <button type="button" class="btn btn-icon" data-action="timer-adjust" data-delta="-10" aria-label="减少10秒">−10s</button>
-        <button type="button" class="btn btn-icon" data-action="timer-adjust" data-delta="10" aria-label="增加10秒">+10s</button>
+        <button type="button" class="timer-nudge" data-action="timer-adjust" data-delta="-10" aria-label="减少10秒">−10</button>
+        <button type="button" class="btn btn-icon btn-icon-surface" data-action="timer-toggle" aria-label="${toggleLabel}计时"${toggleDisabled ? ' disabled' : ''}>${icon(toggleGlyph)}</button>
+        <button type="button" class="timer-nudge" data-action="timer-adjust" data-delta="10" aria-label="增加10秒">+10</button>
       </div>
       ${subRowHtml}
     </div>
@@ -850,8 +865,11 @@ function renderDeathReviewPanel() {
   return `
     <div class="phase-step phase-step-dawn">
       <div class="phase-step-header">
-        <h2 class="phase-step-title">天亮结算</h2>
-        <p class="phase-step-instruction">核对死亡名单；点选下方存活玩家可添加，✕ 可移除</p>
+        <span class="role-tile camp-god">${icon('sunrise')}</span>
+        <div class="phase-step-heading">
+          <h2 class="phase-step-title">天亮结算</h2>
+          <p class="phase-step-instruction">核对死亡名单；点选下方存活玩家可添加，✕ 可移除</p>
+        </div>
       </div>
       <div class="death-proposal-list">${rows}</div>
       <div class="phase-step-actions">
@@ -870,8 +888,11 @@ function renderTriggerPanel() {
     return `
       <div class="phase-step">
         <div class="phase-step-header">
-          <h2 class="phase-step-title">${escapeText(current.label)}</h2>
-          <p class="phase-step-instruction">点选下方玩家网格中的目标，或跳过</p>
+          <span class="role-tile camp-wolf">${icon('crosshair')}</span>
+          <div class="phase-step-heading">
+            <h2 class="phase-step-title">${escapeText(current.label)}</h2>
+            <p class="phase-step-instruction">点选下方玩家网格中的目标，或跳过</p>
+          </div>
         </div>
         <div class="phase-step-actions">
           <button type="button" class="btn btn-secondary btn-block" data-action="skip-trigger">跳过</button>
@@ -884,8 +905,11 @@ function renderTriggerPanel() {
     return `
       <div class="phase-step">
         <div class="phase-step-header">
-          <h2 class="phase-step-title">${escapeText(current.label)}</h2>
-          <p class="phase-step-instruction">翻牌后不死亡，但失去投票权</p>
+          <span class="role-tile camp-god">${icon('idiot')}</span>
+          <div class="phase-step-heading">
+            <h2 class="phase-step-title">${escapeText(current.label)}</h2>
+            <p class="phase-step-instruction">翻牌后不死亡，但失去投票权</p>
+          </div>
         </div>
         <div class="phase-step-actions">
           <button type="button" class="btn btn-primary" data-action="resolve-idiot-reveal">翻牌免死</button>
@@ -917,8 +941,11 @@ function renderDayMainPanel() {
     <div class="phase-step">
       ${renderFirstSpeakerBannerHtml()}
       <div class="phase-step-header">
-        <h2 class="phase-step-title">白天</h2>
-        <p class="phase-step-instruction">死亡与触发已处理。长按玩家卡片可标记放逐；随时可发起白天主动行为</p>
+        <span class="role-tile camp-civ">${icon('sun')}</span>
+        <div class="phase-step-heading">
+          <h2 class="phase-step-title">白天讨论</h2>
+          <p class="phase-step-instruction">死亡与触发已处理。长按玩家卡片可标记放逐；随时可发起白天主动行为</p>
+        </div>
       </div>
       <div class="day-action-list">${actionButtons}</div>
       <div class="phase-step-actions">
@@ -1028,16 +1055,21 @@ function renderNightStepHtml(stepId) {
   const meta = STEP_META[stepId];
   const { body, confirmDisabled } = renderNightStepBody(stepId, meta);
 
+  const role = roleForNightStep(stepId);
+
   return `
     <div class="phase-step">
       <div class="phase-step-header">
-        <h2 class="phase-step-title">${escapeText(meta.name)}</h2>
-        <p class="phase-step-instruction">${escapeText(meta.instruction)}</p>
+        ${role ? roleTile(role) : `<span class="role-tile camp-god">${icon('moon')}</span>`}
+        <div class="phase-step-heading">
+          <h2 class="phase-step-title">${escapeText(meta.name)}</h2>
+          <p class="phase-step-instruction">${escapeText(meta.instruction)}</p>
+        </div>
       </div>
       ${body}
       <div class="phase-step-actions">
-        <button type="button" class="btn btn-secondary" data-action="skip-night-step">跳过</button>
-        <button type="button" class="btn btn-primary" data-action="confirm-night-step"${confirmDisabled ? ' disabled' : ''}>完成</button>
+        <button type="button" class="btn btn-utility" data-action="skip-night-step">${icon('skip-forward')}跳过</button>
+        <button type="button" class="btn" data-action="confirm-night-step"${confirmDisabled ? ' disabled' : ''}>${icon('check')}完成</button>
       </div>
     </div>
   `;
@@ -1511,8 +1543,7 @@ function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats
       <button type="button" class="player-card is-dead${pulseClass}" data-action="toggle-alive-expand" data-seat="${p.seat}">
         <span class="player-card-seat">${p.seat}号</span>
         <span class="player-card-name">${displayName}</span>
-        <span class="player-card-role">${escapeText(roleName)}</span>
-        ${p.deathReason ? `<span class="tag">${escapeText(p.deathReason)}</span>` : ''}
+        <span class="player-card-death">${escapeText(p.deathReason || '阵亡')}</span>
       </button>
     `;
   }
@@ -1553,29 +1584,30 @@ function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats
 /** 折叠态存活卡片内容，随列数密度降级。SPEC §12.2 */
 function renderCardBodyByDensity(p, role, columns) {
   const displayName = escapeText(p.name || `${p.seat}号`);
-  const iconHtml = role
-    ? `<svg class="player-card-icon" aria-hidden="true"><use href="#${role.icon}"></use></svg>`
+  const loverTag = p.loverSeat != null
+    ? `<span class="player-card-lover">${icon('lover')}</span>` : '';
+  const campCls = role
+    ? { [CAMP.WOLF]: 'camp-wolf', [CAMP.GOD]: 'camp-god', [CAMP.CIV]: 'camp-civ' }[role.camp]
     : '';
-  const loverTag = p.loverSeat != null ? `<span class="tag tag-outline player-card-lover">💕${p.loverSeat}</span>` : '';
 
-  if (columns === 5) {
-    return `
-      <span class="player-card-seat">${p.seat}</span>
-      ${iconHtml}
+  // 座位号与姓名同处一行，图标底板独占一行 —— 5 列密度下省去身份与技能标签
+  const headRow = `
+    <span class="player-card-head">
+      <span class="player-card-seat">${columns === 5 ? p.seat : `${p.seat}号`}</span>
       <span class="player-card-name">${displayName}</span>
       ${loverTag}
-    `;
-  }
+    </span>
+  `;
+
+  if (columns === 5) return `${headRow}${roleTile(role, { unset: !role })}`;
 
   const roleName = role ? escapeText(role.name) : '未知身份';
   const skillChips = columns === 3 ? renderCompactSkillChips(p, role) : '';
 
   return `
-    <span class="player-card-seat">${p.seat}号</span>
-    ${iconHtml}
-    <span class="player-card-name">${displayName}</span>
-    <span class="player-card-role">${roleName}</span>
-    ${loverTag}
+    ${headRow}
+    ${roleTile(role, { unset: !role })}
+    <span class="player-card-role${campCls ? ' ' + campCls : ''}">${roleName}</span>
     ${skillChips}
   `;
 }
