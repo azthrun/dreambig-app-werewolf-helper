@@ -21,12 +21,12 @@
 import {
   ROLES, ROLE_MAP, STEP_META, DEFAULT_NIGHT_ORDER,
   DEATH_REASONS, PRESETS, DEFAULT_RULES, DEFAULT_SETTINGS,
-  ABNORMAL_DEATH_REASONS, CAMP, CAMP_NAME,
+  ABNORMAL_DEATH_REASONS, CAMP, CAMP_NAME, WIN_CONDITION_LABEL,
 } from './roles.js';
 
 import {
   resolveDawn, buildTriggerQueue, cascadeDeaths, computeStepInfo,
-  validateAction, activeNightSteps, campCounts,
+  validateAction, activeNightSteps, campCounts, detectWin,
   pickFirstSpeaker, nextAliveSeat,
 } from './engine.js';
 
@@ -156,6 +156,7 @@ function createInitialState() {
     alertQueue: [],              // 待呈现的警报队列，一次一条（SPEC §10.2 —— 常驻至法官点击「知道了」）
     startedAt: null,             // 游戏开始时间戳，用于战报页计算总时长（SPEC §4.4）
     winner: null,                // 'good' | 'wolf' | 'draw' | null，战报页由法官点选（SPEC §17）
+    winNoticeKey: null,          // 已提示过的结束条件指纹，避免重复写日志（SPEC §17）
   };
 }
 
@@ -222,8 +223,30 @@ function update(patch, opts = {}) {
     state.history = history;
   }
 
+  syncWinNotice();
   persistState();
   render();
+}
+
+/**
+ * 结束条件检测的状态同步。SPEC §17
+ *
+ * 直接写 state（而非再走一次 update）—— 它是本次变更的衍生结果，必须与触发它的
+ * 那次快照同进同退：撤销回上一步时提示随之消失。指纹变化时补一条 system 日志，
+ * 使「何时达成结束条件」进入审计轨迹；同一条件重复渲染不重复记录。
+ */
+function syncWinNotice() {
+  if (state.screen !== 'game') return;
+  const win = detectWin(state);
+  const key = win ? `${win.camp}|${win.reason}|${win.certain}` : null;
+  if (key === state.winNoticeKey) return;
+  state.winNoticeKey = key;
+  if (!win) return;
+  state.log = [...state.log, {
+    day: state.day, phase: state.phase, type: 'system', actor: null, targets: [],
+    text: `${win.certain ? '' : '疑似'}达成结束条件：${win.reason} —— ${WIN_CAMP_LABEL[win.camp]}`,
+    result: null, ts: Date.now(),
+  }];
 }
 
 /** 撤销至上一快照。SPEC §8.5 */
@@ -246,6 +269,7 @@ function normalizeLoadedState(saved) {
   return {
     ...saved,
     alertQueue: saved.alertQueue ?? [],
+    rules: { ...DEFAULT_RULES, ...(saved.rules ?? {}) },
     daySubPhase: saved.daySubPhase ?? null,
     pendingDeaths: saved.pendingDeaths ?? [],
     nightSteps: saved.nightSteps ?? [],
@@ -254,6 +278,7 @@ function normalizeLoadedState(saved) {
     firstSpeakerDay: saved.firstSpeakerDay ?? null,
     startedAt: saved.startedAt ?? null,
     winner: saved.winner ?? null,
+    winNoticeKey: saved.winNoticeKey ?? null,
     timer: saved.timer ? { ...saved.timer, speechStarted: saved.timer.speechStarted ?? false } : saved.timer,
   };
 }
@@ -546,6 +571,19 @@ function renderSetup3() {
               </div>
             </div>
 
+            <div class="toggle-row">
+              <div>
+                <div class="toggle-row-label">狼人胜利条件</div>
+                <div class="toggle-row-hint">屠边：神或民一侧全灭即达成；屠城：两侧同时全灭</div>
+              </div>
+              <div class="segmented" role="group" aria-label="狼人胜利条件">
+                ${['sideKill', 'townKill'].map(v => `
+                  <button type="button" class="btn btn-utility${rules.winCondition === v ? ' is-active' : ''}"
+                          data-action="set-win-condition" data-value="${v}">${WIN_CONDITION_LABEL[v]}</button>
+                `).join('')}
+              </div>
+            </div>
+
             ${ruleToggle('允许守卫连守', '关闭时连守仅提示，不阻断', 'toggle-rule', 'guardRepeatAllowed', rules.guardRepeatAllowed)}
             ${ruleToggle('非常规死亡抑制开枪', '被毒、殉情不可开枪', 'toggle-rule', 'abnormalDeathBlocksShot', rules.abnormalDeathBlocksShot)}
             ${ruleToggle('每日随机首发言', '天亮后自动抽取起始座位与方向', 'toggle-setting', 'randomFirstSpeaker', settings.randomFirstSpeaker)}
@@ -675,9 +713,39 @@ function columnsForCount(n) {
 /** 局内主界面：固定控制区 + 步骤区 + 可滚动玩家网格 + 撤销条。SPEC §12.1 */
 function renderGame() {
   renderGameHeader();
+  renderWinBanner();
   renderAlertBanner();
   renderPhasePanel();
   renderPlayerGrid();
+}
+
+/**
+ * 结束条件横幅：牌面上的结束条件达成时常驻显示，不可关闭。SPEC §17
+ *
+ * 只报告条件达成并给出结束入口，不代法官宣告胜利 —— 结束仍需长按，与
+ * 控制区的 `长按结束` 同一守护（SPEC §8.1「不出现弹窗」）。
+ */
+function renderWinBanner() {
+  const host = document.getElementById('win-banner');
+  if (!host) return;
+  const win = state.screen === 'game' ? detectWin(state) : null;
+  if (!win) {
+    host.hidden = true;
+    host.innerHTML = '';
+    return;
+  }
+  host.hidden = false;
+  host.innerHTML = `
+    <div class="win-banner-inner${win.certain ? '' : ' is-uncertain'}" role="status">
+      ${icon('flag')}
+      <div class="win-banner-text">
+        <strong>${win.certain ? '本局结束' : '疑似结束'}：${WIN_CAMP_LABEL[win.camp]}</strong>
+        <span>${escapeText(win.reason)}${win.certain ? '' : '；仍有身份未知的存活座位，不可尽信'}</span>
+      </div>
+      <button type="button" class="btn btn-primary btn-longpress" data-action="end-game" data-longpress="true">长按结束</button>
+    </div>
+  `;
+  bindLongPressGuard(host.querySelector('[data-action="end-game"]'), endGame);
 }
 
 /** 常驻警告横幅：不自动消失，需法官点击「知道了」确认。SPEC §10.2 */
@@ -735,11 +803,14 @@ function renderGameHeader() {
     </div>
     ${renderTimerRowHtml()}
   `;
-  bindLongPressGuard(header.querySelector('[data-action="end-game"]'), () => {
-    releaseWakeLock();
-    hideUndoBar();
-    update({ screen: 'report' }, { snapshot: false });
-  });
+  bindLongPressGuard(header.querySelector('[data-action="end-game"]'), endGame);
+}
+
+/** 结束对局 → 战报页。释放屏幕常亮并收起撤销条。SPEC §4.4 */
+function endGame() {
+  releaseWakeLock();
+  hideUndoBar();
+  update({ screen: 'report' }, { snapshot: false });
 }
 
 /**
@@ -1267,6 +1338,9 @@ const WINNER_OPTIONS = [
   { key: 'draw', label: '平局' },
 ];
 
+/** 阵营显示名，与战报页胜方选项同源。 */
+const WIN_CAMP_LABEL = Object.fromEntries(WINNER_OPTIONS.map(w => [w.key, w.label]));
+
 /**
  * 战报页：法官点选胜方、完整名单（座位 / 姓名 / 身份 / 死因 / 死亡时间）、
  * 总时长与天数、完整日志；开新局（长按）/ 返回。SPEC §4.4
@@ -1278,6 +1352,10 @@ function renderReport() {
   const winnerButtonsHtml = WINNER_OPTIONS.map(w => `
     <button type="button" class="btn btn-utility${state.winner === w.key ? ' is-active' : ''}" data-action="set-winner" data-winner="${w.key}">${w.label}</button>
   `).join('');
+
+  const win = detectWin(state);
+  const winHintHtml = win ? `
+          <p class="note">${win.certain ? '检测到' : '疑似'}结束条件：${escapeText(win.reason)} —— 建议 ${WIN_CAMP_LABEL[win.camp]}${win.certain ? '' : '（仍有身份未知的存活座位）'}</p>` : '';
 
   const rosterHtml = state.players.map(renderReportRosterRow).join('');
   const logHtml = renderReportLogHtml();
@@ -1294,6 +1372,7 @@ function renderReport() {
         <div class="card">
           <span class="eyebrow">胜方</span>
           <div class="actions" role="group" aria-label="胜方">${winnerButtonsHtml}</div>
+          ${winHintHtml}
           <div class="rule"></div>
           <p class="note">${state.playerCount}人局 · 共${state.day}天 · 用时 ${durationText}</p>
         </div>
@@ -3328,6 +3407,7 @@ function handleAppClick(e) {
     case 'night-timer-inc':     adjustNightTimer(NIGHT_TIMER_STEP); break;
     case 'toggle-rule':         setRule(el.dataset.rule, el.checked); break;
     case 'set-witch-self-save': setRule('witchSelfSave', el.dataset.value); break;
+    case 'set-win-condition':  setRule('winCondition', el.dataset.value); break;
     case 'toggle-setting':      setSetting(el.dataset.setting, el.checked); break;
     case 'select-seat4':      selectSeat4(Number(el.dataset.seat)); break;
     case 'assign-role4':      assignRole4(el.dataset.role); break;

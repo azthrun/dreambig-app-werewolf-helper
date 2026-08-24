@@ -333,6 +333,27 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 .speech-spacer { flex: 1; }
 
 /* 常驻警告横幅 —— 不自动消失。SPEC §10.2 */
+/* 结束条件横幅（SPEC §17）—— 比警告更强的存在感：达成即对局应当收尾。 */
+.win-banner { flex: 0 0 auto; }
+.win-banner[hidden] { display: none; }
+.win-banner-inner {
+  margin: var(--space-sm) var(--space-md) 0;
+  padding: 14px var(--space-md);
+  background: var(--canvas-white);
+  border: 2px solid var(--accent-green);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.win-banner-inner .icon { color: var(--accent-green); flex: 0 0 auto; }
+.win-banner-inner.is-uncertain { border-style: dashed; }
+.win-banner-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.win-banner-text strong { font: var(--type-body); }
+.win-banner-inner .btn { flex: 0 0 auto; white-space: nowrap; padding-inline: var(--space-md); }
+.win-banner-text span { font: var(--type-body-sm); color: var(--text-secondary); }
+
 .alert-banner { flex: 0 0 auto; }
 .alert-banner[hidden] { display: none; }
 .alert-banner-inner {
