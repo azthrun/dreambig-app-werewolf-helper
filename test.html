@@ -22,7 +22,7 @@
 <script type="module">
 import {
   resolveDawn, buildTriggerQueue, cascadeDeaths, computeStepInfo,
-  bearGrowls, validateAction, activeNightSteps, campCounts,
+  bearGrowls, validateAction, activeNightSteps, campCounts, detectWin,
   pickFirstSpeaker, nextAliveSeat,
 } from './engine.js';
 import {
@@ -623,6 +623,88 @@ test('validateAction: 女巫自救（never）→ 任何夜都警告', () => {
   const state = makeState({ playerCount: 3, roles: { 1: 'witch' }, day: 1, rules: { witchSelfSave: 'never' } });
   const warnings = validateAction(state, 'witch', { type: 'save', target: 1 });
   assert(warnings.some(w => w.type === 'witchSelfSave'), `实际 ${JSON.stringify(warnings)}`);
+});
+
+// ── 结束条件检测（SPEC §17）────────────────────────────────────────
+test('detectWin: 身份未分配 → 不判定', () => {
+  const state = makeState({ playerCount: 6 });
+  assert(detectWin(state) === null, `实际 ${JSON.stringify(detectWin(state))}`);
+});
+
+test('detectWin: 局面正常 → null', () => {
+  const state = makeState({
+    playerCount: 6,
+    roles: { 1: 'wolf', 2: 'wolf', 3: 'seer', 4: 'witch', 5: 'villager', 6: 'villager' },
+  });
+  assert(detectWin(state) === null, `实际 ${JSON.stringify(detectWin(state))}`);
+});
+
+test('detectWin: 狼人全部出局 → 好人达成，certain', () => {
+  const state = makeState({
+    playerCount: 6,
+    roles: { 1: 'wolf', 2: 'wolf', 3: 'seer', 4: 'witch', 5: 'villager', 6: 'villager' },
+    alive: { 1: false, 2: false },
+  });
+  const win = detectWin(state);
+  assert(win?.camp === 'good' && win.certain === true, `实际 ${JSON.stringify(win)}`);
+});
+
+test('detectWin: 有身份未知的存活座位 → certain 为 false', () => {
+  const state = makeState({
+    playerCount: 6,
+    roles: { 1: 'wolf', 2: 'wolf', 3: 'seer', 5: 'villager' },
+    alive: { 1: false, 2: false },
+  });
+  const win = detectWin(state);
+  assert(win?.camp === 'good' && win.certain === false, `实际 ${JSON.stringify(win)}`);
+});
+
+test('detectWin: 屠边（默认）神职全灭 → 狼人达成', () => {
+  const state = makeState({
+    playerCount: 6,
+    roles: { 1: 'wolf', 2: 'wolf', 3: 'seer', 4: 'witch', 5: 'villager', 6: 'villager' },
+    alive: { 3: false, 4: false },
+  });
+  const win = detectWin(state);
+  assert(win?.camp === 'wolf' && win.reason === '神职全部出局', `实际 ${JSON.stringify(win)}`);
+});
+
+test('detectWin: 屠边 平民全灭 → 狼人达成', () => {
+  const state = makeState({
+    playerCount: 6,
+    roles: { 1: 'wolf', 2: 'wolf', 3: 'seer', 4: 'witch', 5: 'villager', 6: 'villager' },
+    alive: { 5: false, 6: false },
+  });
+  const win = detectWin(state);
+  assert(win?.camp === 'wolf' && win.reason === '平民全部出局', `实际 ${JSON.stringify(win)}`);
+});
+
+test('detectWin: 屠城 单边全灭不达成，两边全灭才达成', () => {
+  const rules = { ...DEFAULT_RULES, winCondition: 'townKill' };
+  const roles = { 1: 'wolf', 2: 'wolf', 3: 'seer', 4: 'witch', 5: 'villager', 6: 'villager' };
+  const half = makeState({ playerCount: 6, roles, rules, alive: { 3: false, 4: false } });
+  assert(detectWin(half) === null, `单边全灭不应达成，实际 ${JSON.stringify(detectWin(half))}`);
+  const full = makeState({ playerCount: 6, roles, rules, alive: { 3: false, 4: false, 5: false, 6: false } });
+  const win = detectWin(full);
+  assert(win?.camp === 'wolf' && win.reason === '好人全部出局', `实际 ${JSON.stringify(win)}`);
+});
+
+test('detectWin: 牌堆中不存在的阵营不参与全灭判定（无神职局）', () => {
+  const state = makeState({
+    playerCount: 5,
+    roles: { 1: 'wolf', 2: 'wolf', 3: 'villager', 4: 'villager', 5: 'villager' },
+  });
+  assert(detectWin(state) === null, `实际 ${JSON.stringify(detectWin(state))}`);
+});
+
+test('detectWin: 全员出局 → 平局', () => {
+  const state = makeState({
+    playerCount: 4,
+    roles: { 1: 'wolf', 2: 'seer', 3: 'villager', 4: 'villager' },
+    alive: { 1: false, 2: false, 3: false, 4: false },
+  });
+  const win = detectWin(state);
+  assert(win?.camp === 'draw', `实际 ${JSON.stringify(win)}`);
 });
 
 // ── 汇总 ──────────────────────────────────────────────────────────

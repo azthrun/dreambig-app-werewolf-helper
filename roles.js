@@ -113,6 +113,13 @@ export const DEFAULT_RULES = {
   witchSelfSave: 'firstNightOnly',    // 'never' | 'firstNightOnly' | 'always'
   guardRepeatAllowed: false,          // 禁止连守（仅警告，不阻断）
   abnormalDeathBlocksShot: true,      // 被毒 / 殉情 抑制开枪
+  winCondition: 'sideKill',           // 'sideKill' 屠边 | 'townKill' 屠城（SPEC §17）
+};
+
+/** 胜利条件显示名（SPEC §17） */
+export const WIN_CONDITION_LABEL = {
+  sideKill: '屠边',
+  townKill: '屠城',
 };
 
 /** 默认设置（SPEC §3.3） */

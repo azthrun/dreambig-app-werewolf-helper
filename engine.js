@@ -470,6 +470,60 @@ export function campCounts(state) {
 }
 
 /**
+ * 结束条件检测。SPEC §17
+ *
+ * 不宣告胜利，只报告「牌面上的结束条件已经达成」，由法官裁定并结束对局。
+ * 判定只看已分配身份的座位：
+ *   - 狼方全部出局           → 好人达成结束条件
+ *   - 屠边：神职或平民一侧全灭 → 狼人达成结束条件
+ *   - 屠城：神职与平民同时全灭 → 狼人达成结束条件
+ * 牌堆中不存在的阵营不参与「全灭」判定（如全民局没有神职，不算屠神）。
+ *
+ * `certain` 为 false 表示仍有身份未知的存活座位，数字不可尽信（SPEC §17 的
+ * 同一条理由）—— 呈现层必须把结论降级为「疑似」。
+ *
+ * @param {GameState} state
+ * @returns {?{ camp:'good'|'wolf'|'draw', reason:string, certain:boolean }}
+ */
+export function detectWin(state) {
+  const inDeck = { wolf: 0, god: 0, civ: 0 };
+  for (const p of state.players) {
+    const roleId = p.effectiveRoleId ?? p.roleId;
+    const role = roleId ? ROLE_MAP[roleId] : null;
+    if (role) inDeck[role.camp]++;
+  }
+  // 身份尚未分配（配置阶段 / 全场未知）时不做任何判定
+  if (inDeck.wolf === 0) return null;
+
+  const alive = campCounts(state);
+  const certain = alive.unknown === 0;
+
+  if (state.players.every(p => !p.alive)) {
+    return { camp: 'draw', reason: '全员出局', certain: true };
+  }
+
+  if (alive.wolf === 0) {
+    return { camp: 'good', reason: '狼人全部出局', certain };
+  }
+
+  const godWiped = inDeck.god > 0 && alive.god === 0;
+  const civWiped = inDeck.civ > 0 && alive.civ === 0;
+  const townKill = (inDeck.god === 0 || godWiped) && (inDeck.civ === 0 || civWiped);
+  const met = state.rules?.winCondition === 'townKill'
+    ? townKill && (godWiped || civWiped)
+    : godWiped || civWiped;
+
+  if (met) {
+    const reason = godWiped && civWiped ? '好人全部出局'
+      : godWiped ? '神职全部出局'
+      : '平民全部出局';
+    return { camp: 'wolf', reason, certain };
+  }
+
+  return null;
+}
+
+/**
  * 每日随机首发言：随机座位 + 方向。SPEC §15
  * 使用 crypto.getRandomValues。仅在存活玩家中抽取。
  *
