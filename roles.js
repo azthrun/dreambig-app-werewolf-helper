@@ -110,7 +110,7 @@ export const PRESETS = {
 /** 默认规则开关（SPEC §7） */
 export const DEFAULT_RULES = {
   doubleProtectKills: true,           // 同守同救 → 死亡
-  witchSelfSave: 'firstNightOnly',    // 'never' | 'firstNightOnly' | 'always'
+  witchSelfSave: 'never',             // 'never' | 'firstNightOnly' | 'always'
   guardRepeatAllowed: false,          // 禁止连守（仅警告，不阻断）
   abnormalDeathBlocksShot: true,      // 被毒 / 殉情 抑制开枪
   winCondition: 'sideKill',           // 'sideKill' 屠边 | 'townKill' 屠城（SPEC §17）
@@ -126,6 +126,6 @@ export const WIN_CONDITION_LABEL = {
 export const DEFAULT_SETTINGS = {
   soundEnabled: false,
   randomFirstSpeaker: true,
-  dayTimerDefault: 180,
+  dayTimerDefault: 60,
   nightTimerDefault: 60,
 };
