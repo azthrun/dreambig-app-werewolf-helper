@@ -580,7 +580,7 @@ CSS **复制进本项目的 `style.css`**，不引用 `_ds` 包 —— 那是 Cl
 
 ### 12.5 图标
 
-约 57 个 `<symbol>`，以 sprite（`<symbol>` + `<use>`）方式引入，内容同时存在于 `icons.svg` 与 `index.html` 的内联块中（两者须保持同步）。
+约 48 个 `<symbol>`，以 sprite（`<symbol>` + `<use>`）方式引入，内容同时存在于 `icons.svg` 与 `index.html` 的内联块中（两者须保持同步）。
 
 字形取自 **Lucide**（`lucide-static` v1.33.0，ISC 许可），**内联进本仓库**。设计稿从 unpkg 运行时加载 Lucide；本项目改为 vendoring，原因有二：cache-first 离线 PWA 不能依赖运行时网络；`@latest` 未锁版本，上游一次发布即可改动甚至打断本应用的图标。
 
@@ -602,7 +602,7 @@ CSS **复制进本项目的 `style.css`**，不引用 `_ds` 包 —— 那是 Cl
 
 **阵营以颜色区分。** 角色图标置于阵营色底板上（狼橙 / 神青 / 民绿，字形取白），卡片下方始终另有身份文字。这是设计稿对「6 个狼角色难以辨识」的解法 —— v1 曾以手绘「基础狼形 + 修饰符」应对同一问题，但在 4 列与 5 列密度下，18px 的剪影本就不可读，颜色更有效。
 
-界面字形（约 37 个）与角色字形共用同一 sprite 与 `icon-` 前缀。`components.html` 是 sprite 的可视索引，界面字形一节直接从 sprite 读取，不维护手工清单。
+界面字形（约 28 个）与角色字形共用同一 sprite 与 `icon-` 前缀。`components.html` 是 sprite 的可视索引，界面字形一节直接从 sprite 读取，不维护手工清单。
 
 描边属性统一由 `style.css` 的 `.icon` 类提供（`currentColor`、2px、round），符号内不重复声明。
 

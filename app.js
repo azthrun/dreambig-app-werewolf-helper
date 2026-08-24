@@ -19,14 +19,14 @@
  */
 
 import {
-  ROLES, ROLE_MAP, WOLF_ROLE_IDS, STEP_META, DEFAULT_NIGHT_ORDER,
+  ROLES, ROLE_MAP, STEP_META, DEFAULT_NIGHT_ORDER,
   DEATH_REASONS, PRESETS, DEFAULT_RULES, DEFAULT_SETTINGS,
   ABNORMAL_DEATH_REASONS, CAMP, CAMP_NAME,
 } from './roles.js';
 
 import {
   resolveDawn, buildTriggerQueue, cascadeDeaths, computeStepInfo,
-  bearGrowls, validateAction, activeNightSteps, campCounts,
+  validateAction, activeNightSteps, campCounts,
   pickFirstSpeaker, nextAliveSeat,
 } from './engine.js';
 
@@ -740,12 +740,6 @@ function renderGameHeader() {
     hideUndoBar();
     update({ screen: 'report' }, { snapshot: false });
   });
-}
-
-/** 阵营计数条文案，形如「狼3·神2·民4」；存在未知身份座位时附加提示。SPEC §17 */
-function campCountLabel(counts) {
-  const base = `狼${counts.wolf}·神${counts.god}·民${counts.civ}`;
-  return counts.unknown > 0 ? `${base} · 未知${counts.unknown}（不可尽信）` : base;
 }
 
 /**

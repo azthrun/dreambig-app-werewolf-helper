@@ -296,7 +296,6 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
   font-variant-numeric: tabular-nums;
 }
 /* 到时警报：强视觉。SPEC §14.3 */
-.timer-remaining.is-expired { color: var(--accent-orange); }
 .timer-controls { display: flex; align-items: center; gap: var(--space-xxs); flex: none; }
 .timer-nudge {
   width: 34px;
@@ -704,16 +703,6 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 }
 .player-card.is-dead > .tag { flex: 0 0 100%; }
 
-.player-card-icon {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 .player-card-lover {
   display: inline-flex;
   align-items: center;
@@ -966,7 +955,6 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 }
 .log-entry:last-child { border-bottom: none; }
 .log-entry-text { flex: 1; min-width: 0; font: var(--type-body-sm); text-wrap: pretty; }
-.log-entry-note .log-entry-text { font-style: italic; }
 
 .log-note-row { display: flex; gap: var(--space-xs); align-items: center; }
 .log-note-row .input { flex: 1 1 auto; min-width: 0; }
@@ -995,9 +983,6 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 
 /* 需要法官注意但非错误的横幅（首发言抽取、白天主动行为引导） */
 .banner-inline.is-accent { border-color: var(--color-primary); }
-/* 警告 —— 与狼人阵营同为 accent-orange，见 issue #36 记录的取舍 */
-.banner-inline.is-warning { border-color: var(--accent-orange); }
-.banner-inline.is-warning .icon { color: var(--accent-orange); }
 
 /* ══════════════════════════════════════════════════════════════════
    设置向导 —— 四步共用外壳                     SPEC §4.1
@@ -1183,7 +1168,6 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 /* ══════════════════════════════════════════════════════════════════
    通用占位屏 —— 局内 / 日志 / 战报的正式内容见各自小节
    ══════════════════════════════════════════════════════════════════ */
-.wrap { display: flex; flex-direction: column; gap: var(--space-md); padding: var(--space-sm); }
 .note { color: var(--text-muted); font: var(--type-body-sm); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 
@@ -1223,7 +1207,6 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
   border-radius: var(--radius-md);
 }
 .answer-text { font: var(--type-heading-3); letter-spacing: var(--tracking-heading-3); }
-.answer-text-lg { font: var(--type-heading-2); letter-spacing: var(--tracking-heading-2); }
 
 .witch-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 
