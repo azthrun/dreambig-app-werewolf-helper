@@ -160,7 +160,6 @@
   settings: {
     soundEnabled: false,
     randomFirstSpeaker: true,
-    theme: 'auto' | 'light' | 'dark',
   },
   day: 1,
   phase: 'night' | 'day',
@@ -452,7 +451,7 @@ bearGrowls(state) -> true | false | 'unknown'
 
 所有结果一并写入日志：`第2夜 · 预言家查验 5号 → 狼人`，使局内日志成为真正的复盘记录。
 
-**信息泄露风险**：法官屏幕会以大字号显示敏感结果。缓解措施 —— 结果仅呈现于步骤横幅区（法官本就以身体遮挡的区域），且局内界面默认暗色主题。
+**信息泄露风险**：法官屏幕会以大字号显示敏感结果。缓解措施 —— 结果仅呈现于步骤横幅区（法官本就以身体遮挡的区域）。界面自 issue #36 起仅浅色，因此这一区域的遮挡是唯一的缓解手段。
 
 ---
 
@@ -507,6 +506,8 @@ bearGrowls(state) -> true | false | 'unknown'
 
 `GameState.version` 与代码内常量比对，不匹配时**丢弃存档**并提示，而非在陈旧结构上崩溃。迭代期的廉价保险。
 
+⚠️ 丢弃是彻底的：递增 `STATE_VERSION` 会让所有设备上**进行中的对局**在更新落地的瞬间消失。因此仅在存档结构真正不兼容时才递增。纯粹的字段删除不必递增 —— 残留字段无人读取，下一次 `saveGame` 自然清除。issue #36 移除 `settings.theme` 即按此处理，版本保持为 1。
+
 ---
 
 ## 12. 界面与布局
@@ -549,35 +550,61 @@ bearGrowls(state) -> true | false | 'unknown'
 
 ### 12.4 视觉设计
 
-沿用 Modernist 设计系统的**令牌架构与扁平风格**：0 圆角、2px 分隔线、标签左对齐、单一强调红、100–900 色阶。
+采用 **DreamBig 设计系统**（自 Claude Design 项目导入，issue #36）。**仅浅色**，无主题切换。
 
-**两处必须修正**：
+令牌层 —— 颜色、字号、间距、圆角、阴影、动效 —— **逐字符移植**自设计系统的 `tokens/*.css`，不作改写：那是设计系统的真正契约。组件层则以类名重新表达，全部由令牌驱动。设计稿本身用内联样式，那是 Claude Design 画布格式的产物（画布没有样式表可写），不是设计意图，因此不照搬。
 
-1. **移除 Google Fonts。** Archivo 无 CJK 字形覆盖 —— 本应用界面几乎全为中文，所有汉字本就回落到系统字体。为少量拉丁字形付出阻塞渲染的外部请求毫无意义，且引入外部网络依赖。改用系统字体栈：
+关键令牌：
+
+| | |
+|---|---|
+| 主色 | `--color-primary` `#0075de` |
+| 画布 / 卡片 | `--canvas` `#f6f5f4` / `--surface-card` `#ffffff` |
+| 分隔线 | `--border-hairline` `#e6e6e6`，1px |
+| 圆角 | 卡片 12px、按钮 8px、胶囊 9999px |
+| 阵营色 | 狼 `#dd5b00` · 神 `#2a9d99` · 民 `#1aae39` |
+
+**两处刻意偏离设计稿**（均非视觉决策，见 issue #36）：
+
+1. **不引入 Google Fonts。** 设计稿 `@import` Inter；本应用为 cache-first 离线 PWA，界面又几乎全为中文，而 Inter 无 CJK 覆盖 —— 汉字本就回落到系统字体，为少量拉丁字形付出阻塞渲染的跨域请求毫无意义。字体栈保留设计系统的优先顺序，仅本地解析：
    ```css
-   font-family: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+   --font-sans: "DreamBigSans", "Inter", -apple-system, system-ui, "Segoe UI",
+                "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Helvetica, Arial, sans-serif;
    ```
-2. **新增暗色主题。** 狼人杀在昏暗环境中进行，浅色主题（`#f3f2f2`）在夜间刺眼且会向玩家泄露光线。
-   - `:root` 定义完整浅色令牌；
-   - `@media (prefers-color-scheme: dark)` 内以 `:root:not([data-theme="light"])` 保护地覆写；
-   - `:root[data-theme="dark"]` 再次覆写，使手动切换在两个方向都生效；
-   - **局内界面默认暗色**，保留强调红（在暗底上表现良好，且延续 Modernist 识别度）。
+   日后拿到 DreamBigSans 的 woff2，放进 `assets/fonts/` 并在 `style.css` 补 `@font-face` 即可，其余不动。
+2. **不引入 unpkg 的 Lucide。** 见 §12.5。
 
 CSS **复制进本项目的 `style.css`**，不引用 `_ds` 包 —— 那是 Claude Design 的基础设施，不属于本项目。
 
+> **历史决策（已推翻）：** v1 曾要求暗色主题，理由是狼人杀在昏暗环境进行、浅色会向玩家泄露光线。issue #36 判定设计稿在界面决策上优先级高于本规格，暗色主题连同 `settings.theme` 一并移除。若日后要恢复，需重新引入令牌覆写层与切换控件。
+
 ### 12.5 图标
 
-19 个**手绘内联 SVG**，以 sprite（`<symbol>` + `<use>`）方式引入。
+约 48 个 `<symbol>`，以 sprite（`<symbol>` + `<use>`）方式引入，内容同时存在于 `icons.svg` 与 `index.html` 的内联块中（两者须保持同步）。
 
-- Lucide 视觉语言：24×24 viewBox、1.5–2px 描边、`currentColor`、无填充。
-- **狼族以「基础狼形 + 修饰符」区分**（原型中 6 个狼角色共用同一图标，恰恰使驱动死亡触发逻辑的角色无法辨识）：
-  - 普通狼人 —— 基础狼形
-  - 狼王 —— + 王冠
-  - 白狼王 —— + 王冠 + 爆裂星芒
-  - 狼美人 —— + 唇形 / 心形
-  - 隐狼 —— 虚线 / 残缺轮廓
-  - 机械狼 —— + 齿轮 / 螺栓
-- 阵营**不以颜色区分**（Modernist 为单色方案）—— 依靠图形本身与卡片下方的身份文字。
+字形取自 **Lucide**（`lucide-static` v1.33.0，ISC 许可），**内联进本仓库**。设计稿从 unpkg 运行时加载 Lucide；本项目改为 vendoring，原因有二：cache-first 离线 PWA 不能依赖运行时网络；`@latest` 未锁版本，上游一次发布即可改动甚至打断本应用的图标。
+
+**符号 ID 命名的是「角色」而非「字形」**（`icon-wolf` 而非 `icon-dog`）：`roles.js` 的 `icon` 字段因此无需随换图改动，日后重选字形只改 `icons.svg` 一处。角色 → 字形的对应：
+
+| 角色 | Lucide | 角色 | Lucide |
+|---|---|---|---|
+| 普通狼人 | `dog` | 骑士 | `swords` |
+| 狼王 | `crown` | 丘比特 | `heart-handshake` |
+| 白狼王 | `zap` | 魔术师 | `wand` |
+| 狼美人 | `heart` | 守墓人 | `shovel` |
+| 隐狼 | `eye-off` | 狐狸 | `paw-print` |
+| 机械狼 | `cog` | 熊 | `footprints` |
+| 预言家 | `eye` | 通灵师 | `sparkles` |
+| 女巫 | `flask-conical` | 平民 | `user` |
+| 猎人 | `crosshair` | 情侣（状态） | `heart` |
+| 守卫 | `shield` | | |
+| 白痴 | `smile` | | |
+
+**阵营以颜色区分。** 角色图标置于阵营色底板上（狼橙 / 神青 / 民绿，字形取白），卡片下方始终另有身份文字。这是设计稿对「6 个狼角色难以辨识」的解法 —— v1 曾以手绘「基础狼形 + 修饰符」应对同一问题，但在 4 列与 5 列密度下，18px 的剪影本就不可读，颜色更有效。
+
+界面字形（约 28 个）与角色字形共用同一 sprite 与 `icon-` 前缀。`components.html` 是 sprite 的可视索引，界面字形一节直接从 sprite 读取，不维护手工清单。
+
+描边属性统一由 `style.css` 的 `.icon` 类提供（`currentColor`、2px、round），符号内不重复声明。
 
 ### 12.6 无障碍
 
@@ -727,9 +754,9 @@ CSS **复制进本项目的 `style.css`**，不引用 `_ds` 包 —— 那是 Cl
 | 设2 长按标记阵亡 | §8.3 | ✅ 550ms 长按 → 内联死因芯片 |
 | 设3 阵亡状态可折叠 | §12.2 | ✅ 折叠至 42px，显示身份 + 死因 |
 | 设4 不能有任何弹窗 | §8.1、§8.2 | ✅ 全部确认经由长按守护或撤销条 |
-| 设5 简易设计风格 | §12.4 | ✅ Modernist 令牌 + 暗色主题 |
+| 设5 简易设计风格 | §12.4 | ✅ DreamBig 令牌，仅浅色（issue #36） |
 | 新1 姓名持久化 + 清空 | §11.2 | ✅ 姓名池 + 沿用上次名单 + 长按清空 |
-| 新2 拖拽排序玩家 | §4.1 Step 2 | ✅ 把手拖拽，Pointer Events |
+| 新2 拖拽排序玩家 | §4.1 Step 2 | ✅ 把手拖拽，Pointer Events（issue #36 保留，未采纳设计稿的上下箭头） |
 | 新3 每日随机首发言 | §15 | ✅ 默认开启，驱动发言计时 |
 
 ---

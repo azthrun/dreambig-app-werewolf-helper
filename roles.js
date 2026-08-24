@@ -61,7 +61,6 @@ export const ROLES = [
 ];
 
 export const ROLE_MAP = Object.fromEntries(ROLES.map(r => [r.id, r]));
-export const WOLF_ROLE_IDS = ROLES.filter(r => r.camp === CAMP.WOLF).map(r => r.id);
 
 /**
  * 夜晚步骤元数据。
@@ -120,7 +119,6 @@ export const DEFAULT_RULES = {
 export const DEFAULT_SETTINGS = {
   soundEnabled: false,
   randomFirstSpeaker: true,
-  theme: 'auto',
   dayTimerDefault: 180,
   nightTimerDefault: 60,
 };

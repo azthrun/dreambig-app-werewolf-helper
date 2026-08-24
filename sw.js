@@ -9,7 +9,7 @@
  *    CACHE_NAME 必须在每次发布时递增，否则用户会被钉在旧版本上。
  */
 
-const CACHE_NAME = 'wolf-v3';
+const CACHE_NAME = 'wolf-v5';
 
 /** 相对路径 —— 项目站点子路径下绝对路径会导致注册失败（SPEC §2.3）。 */
 const PRECACHE_URLS = [
