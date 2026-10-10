@@ -742,47 +742,73 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
   box-shadow: var(--shadow-soft);
 }
 
-/* 展开态：身份 / 技能状态 / 修改身份 / 设为情侣 / 恢复存活 / 死因芯片
-   —— 内联展开，非弹窗（SPEC §8.1 / §8.3） */
-.player-card-expanded {
-  grid-column: 1 / -1;
-  align-self: start;
-  align-items: stretch;
-  text-align: left;
-  cursor: default;
-  padding: var(--space-md);
-  box-shadow: var(--shadow-soft);
-}
-.player-card-expanded-header {
+/* ══════════════════════════════════════════════════════════════════
+   玩家面板（模态）—— 本应用唯一的弹窗            SPEC §8.1 / §8.3
+   ══════════════════════════════════════════════════════════════════ */
+.player-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 15;               /* 低于撤销条（20），使「撤销」在面板打开时仍可点 */
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  width: 100%;
-  cursor: pointer;
-  font: var(--type-title);
-  letter-spacing: var(--tracking-title);
+  align-items: flex-end;
+  justify-content: center;
 }
-.player-card-expanded-body {
+.player-modal[hidden] { display: none; }
+.player-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+.player-modal-sheet {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-sm);
   width: 100%;
-  padding-top: var(--space-sm);
+  max-width: var(--app-max-width);
+  max-height: 85dvh;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--surface-card);
+  box-shadow: var(--shadow-modal);
 }
-.player-card-expanded-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.player-modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.player-modal-heading { flex: 1; min-width: 0; }
+.player-modal-title { margin: 0; font: var(--type-title); letter-spacing: var(--tracking-title); }
+.player-modal-sub { margin: 0; color: var(--text-muted); font: var(--type-body-sm); }
+.player-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-md);
+  /* 底部留白：撤销条驻留时不遮挡最后一节 */
+  padding-bottom: calc(var(--space-xxl) * 3 + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.player-modal-section { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-xs); }
+.player-modal-section .eyebrow { margin: 0; }
+.player-modal-section .skill-status-row { justify-content: flex-start; gap: var(--space-xs); }
+.player-modal-section .skill-chip-toggle { min-height: 36px; padding: var(--space-input) var(--space-sm); font: var(--type-caption); }
+.chip-row { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.chip-row .chip { gap: var(--space-xxs); min-height: 36px; }
+.chip-meta { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.player-modal.is-entering .player-modal-backdrop { animation: modalFade var(--duration-base) var(--ease-out); }
+.player-modal.is-entering .player-modal-sheet { animation: modalRise var(--duration-slow) var(--ease-out); }
+@keyframes modalFade { from { opacity: 0; } }
+@keyframes modalRise { from { transform: translateY(24px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .player-modal.is-entering .player-modal-backdrop,
+  .player-modal.is-entering .player-modal-sheet { animation: none; }
+}
 
 .skill-status-row,
 .skill-chip-row { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
-
-.death-reason-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
-  width: 100%;
-  padding-top: var(--space-sm);
-}
 
 @keyframes alertPulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-orange) 0%, transparent); }
@@ -1159,27 +1185,6 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
   border-bottom: 1px solid var(--border-hairline);
 }
 .timer-field:last-child { border-bottom: none; }
-
-/* ── 身份选择行（局内「修改身份」） ── */
-.role-row-select {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  width: 100%;
-  padding: 10px var(--space-md);
-  border: none;
-  border-bottom: 1px solid var(--border-hairline);
-  background: none;
-  color: var(--text-body);
-  font: var(--type-body-md);
-  font-family: var(--font-sans);
-  text-align: left;
-  cursor: pointer;
-  transition: var(--transition-surface);
-}
-.role-row-select:last-child { border-bottom: none; }
-.role-row-select:active { background: var(--surface-featured); }
-.role-row-select:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
 
 /* ══════════════════════════════════════════════════════════════════
    通用占位屏 —— 局内 / 日志 / 战报的正式内容见各自小节

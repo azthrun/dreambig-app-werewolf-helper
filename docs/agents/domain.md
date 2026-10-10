@@ -32,7 +32,7 @@ Do not invent synonyms for terms SPEC already fixes. Notably:
 
 - **情侣 is a status, not a role** (SPEC §5.3) — never reintroduce it as a `roleId`.
 - **死因** comes from the closed enum in SPEC §5.2, not free text.
-- **弹窗** means an overlay/blocking layer (SPEC §8.1) — inline banners and full-screen route changes are not 弹窗.
+- **弹窗** means an overlay/blocking layer (SPEC §8.1) — inline banners and full-screen route changes are not 弹窗. The one sanctioned 弹窗 is the **玩家面板**, a modal sheet the 法官 opens on a player card.
 
 If the concept you need isn't fixed by SPEC yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 

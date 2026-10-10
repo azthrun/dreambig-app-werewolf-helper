@@ -39,7 +39,7 @@ import {
 // ══════════════════════════════════════════════════════════════════
 
 const LONG_PRESS_DESTRUCTIVE_MS = 600;  // 破坏性操作长按守护（SPEC §8.2）
-const LONG_PRESS_DEATH_MS = 550;        // 长按标记阵亡（SPEC §8.3）
+const LONG_PRESS_DEATH_MS = 550;        // 长按卡片打开玩家面板（SPEC §8.3）
 const UNDO_BAR_MS = 5000;               // 撤销条驻留时长（SPEC §8.2）
 const HISTORY_DEPTH = 20;               // 全量快照深度（SPEC §8.5）
 const MIN_PLAYERS = 6;
@@ -98,9 +98,8 @@ let dayActionSeat = null;          // 发起行为的座位（骑士 / 白狼王
 let dayActionTarget = null;        // 已选中的对手 / 目标座位
 
 // ── 局内玩家网格 —— 纯 UI 展开状态，不入 GameState/撤销栈。SPEC §12 / §8.3 ──
-let gameExpandedSeat = null;       // 当前展开信息面板的座位（存活或阵亡）
-let gameDeathPickerSeat = null;    // 当前展示死因芯片的座位（长按触发）
-let gameRoleEditSeat = null;       // 当前正在「修改身份」的座位
+let playerModalSeat = null;        // 当前打开玩家面板（模态）的座位；null = 未打开
+let playerModalOpenedAt = 0;       // 面板打开时刻，用于忽略长按松手时落在遮罩上的那一下点击
 
 // ── 夜晚步骤 —— 当前步骤尚未确认的目标选择，纯 UI 瞬态，不入 GameState/撤销栈。
 //    确认（完成）时才写入 nightActions。SPEC §4.2 / §9 ──
@@ -615,6 +614,7 @@ function renderGame() {
   renderAlertBanner();
   renderPhasePanel();
   renderPlayerGrid();
+  renderPlayerModal();
 }
 
 /**
@@ -907,7 +907,7 @@ function renderDayMainPanel() {
         <span class="role-tile camp-civ">${icon('sun')}</span>
         <div class="phase-step-heading">
           <h2 class="phase-step-title">白天讨论</h2>
-          <p class="phase-step-instruction">死亡与触发已处理。长按玩家卡片可标记放逐；随时可发起白天主动行为</p>
+          <p class="phase-step-instruction">死亡与触发已处理。点击玩家卡片可标记放逐、修改身份；随时可发起白天主动行为</p>
         </div>
       </div>
       <div class="day-action-list">${actionButtons}</div>
@@ -1470,11 +1470,11 @@ function renderPlayerGrid() {
   const speakingSeat = state.timer.mode === 'speech' ? state.timer.speechSeat : null;
   grid.innerHTML = state.players.map(p => renderPlayerCard(p, columns, selectable, selected, pulsing, speakingSeat)).join('');
 
-  // 长按 550ms 标记阵亡，仅绑定于折叠态的存活卡片；配对 / 白天主动行为选择进行中时不绑定，
-  // 避免与点选目标手势冲突。SPEC §8.3
+  // 长按 550ms 打开玩家面板 —— 点击被目标点选占用时（夜晚步骤等）的统一入口；
+  // 配对 / 白天主动行为选择进行中时不绑定，避免与点选目标手势冲突。SPEC §8.3
   if (!loverPairMode && !dayActionMode) {
-    grid.querySelectorAll('button.player-card:not(.is-dead)').forEach(el => {
-      bindDeathLongPress(el, Number(el.dataset.seat));
+    grid.querySelectorAll('.player-card').forEach(el => {
+      bindCardLongPress(el, Number(el.dataset.seat));
     });
   }
 }
@@ -1534,64 +1534,16 @@ function activeSelectableSeats() {
   return empty;
 }
 
-/** 单张玩家卡片：折叠 / 展开态，按存活与人数密度分派。SPEC §12.2 / §8.3 / §10.2 */
+/** 单张玩家卡片：按存活与人数密度分派；状态与身份的修改在玩家面板中进行。SPEC §12.2 / §8.3 / §10.2 */
 function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats = new Set(), pulseSeats = new Set(), speakingSeat = null) {
   const role = p.roleId ? ROLE_MAP[p.roleId] : null;
-  const roleName = role ? role.name : '未知身份';
   const displayName = escapeText(p.name || `${p.seat}号`);
   const pulseClass = pulseSeats.has(p.seat) ? ' is-pulse' : '';
   const speakingClass = p.alive && speakingSeat === p.seat ? ' is-current-speaker' : '';
 
-  if (gameRoleEditSeat === p.seat) {
-    return `
-      <div class="player-card player-card-expanded" data-seat="${p.seat}">
-        <div class="player-card-expanded-header" data-action="toggle-alive-expand" data-seat="${p.seat}">
-          <span class="player-card-seat">${p.seat}号 ${displayName}</span>
-        </div>
-        <div class="player-card-expanded-body">
-          ${renderRoleEditPanelHtml(p.seat)}
-        </div>
-      </div>
-    `;
-  }
-
-  if (gameDeathPickerSeat === p.seat) {
-    const isPendingAdd = state.phase === 'day' && state.daySubPhase === 'deathReview';
-    const chipAction = isPendingAdd ? 'add-pending-death' : 'mark-dead';
-    return `
-      <div class="player-card player-card-expanded" data-seat="${p.seat}">
-        <div class="player-card-expanded-header">
-          <span class="player-card-seat">${p.seat}号 ${displayName} · 标记阵亡</span>
-          <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-death-picker">取消</button>
-        </div>
-        <div class="death-reason-chips">
-          ${DEATH_REASONS.map(r => `
-            <button type="button" class="chip" data-action="${chipAction}" data-seat="${p.seat}" data-reason="${escapeAttr(r)}">${escapeText(r)}</button>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  }
-
   if (!p.alive) {
-    if (gameExpandedSeat === p.seat) {
-      return `
-        <div class="player-card player-card-expanded is-dead" data-seat="${p.seat}">
-          <div class="player-card-expanded-header" data-action="toggle-alive-expand" data-seat="${p.seat}">
-            <span class="player-card-seat">${p.seat}号 ${displayName}</span>
-          </div>
-          <div class="player-card-expanded-body">
-            <span class="player-card-role">${escapeText(roleName)}</span>
-            <span class="tag tag-accent">${escapeText(p.deathReason || '其他')}</span>
-            <div class="player-card-expanded-actions">
-              <button type="button" class="btn btn-utility" data-action="revive-game" data-seat="${p.seat}">${icon('heart-pulse')}恢复存活</button>
-            </div>
-          </div>
-        </div>
-      `;
-    }
     return `
-      <button type="button" class="player-card is-dead${pulseClass}" data-action="toggle-alive-expand" data-seat="${p.seat}">
+      <button type="button" class="player-card is-dead${pulseClass}" data-action="tap-card" data-seat="${p.seat}">
         <span class="player-card-seat">${p.seat}号</span>
         <span class="player-card-name">${displayName}</span>
         <span class="player-card-death">${escapeText(p.deathReason || '阵亡')}</span>
@@ -1599,34 +1551,11 @@ function renderPlayerCard(p, columns, selectableSeats = new Set(), selectedSeats
     `;
   }
 
-  if (gameExpandedSeat === p.seat) {
-    const loverActionHtml = p.loverSeat != null
-      ? `<button type="button" class="btn btn-ghost btn-sm" data-action="unpair-lover-game" data-seat="${p.seat}">解除情侣（与 ${p.loverSeat}号）</button>`
-      : (state.roleCounts.cupid ?? 0) > 0
-        ? `<button type="button" class="btn btn-secondary btn-sm" data-action="set-lover-game" data-seat="${p.seat}">设为情侣</button>`
-        : '';
-    return `
-      <div class="player-card player-card-expanded" data-seat="${p.seat}">
-        <div class="player-card-expanded-header" data-action="toggle-alive-expand" data-seat="${p.seat}">
-          <span class="player-card-seat">${p.seat}号 ${displayName}</span>
-          <span class="player-card-role">${escapeText(roleName)}</span>
-        </div>
-        <div class="player-card-expanded-body">
-          ${renderSkillStatusHtml(p, role)}
-          <div class="player-card-expanded-actions">
-            <button type="button" class="btn btn-secondary btn-sm" data-action="edit-role-game" data-seat="${p.seat}">修改身份</button>
-            ${loverActionHtml}
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
   const isSelectable = selectableSeats.has(p.seat);
   const isSelected = selectedSeats.has(p.seat);
   const targetClass = `${isSelectable ? ' is-selectable' : ''}${isSelected ? ' is-selected' : ''}${pulseClass}${speakingClass}`;
   return `
-    <button type="button" class="player-card${targetClass}" data-action="toggle-alive-expand" data-seat="${p.seat}">
+    <button type="button" class="player-card${targetClass}" data-action="tap-card" data-seat="${p.seat}">
       ${renderCardBodyByDensity(p, role, columns)}
     </button>
   `;
@@ -1710,38 +1639,126 @@ function isSkillUsed(p, key) {
   return p.skills?.[key] === false;
 }
 
-/** 「修改身份」内联面板：按阵营分组的角色列表。SPEC §8.4 */
-function renderRoleEditPanelHtml(seat) {
-  const assignedByRole = {};
-  for (const p of state.players) {
-    if (p.roleId) assignedByRole[p.roleId] = (assignedByRole[p.roleId] ?? 0) + 1;
+/**
+ * 玩家面板（模态）：随时修改单个玩家的存活状态、技能、身份与情侣关系。SPEC §8.1 / §8.3 / §8.4
+ * 遮罩与面板互为兄弟节点 —— 面板内的空白点击不会冒泡到「关闭」。
+ */
+function renderPlayerModal() {
+  const host = document.getElementById('player-modal');
+  if (!host) return;
+  const p = playerModalSeat != null ? state.players.find(x => x.seat === playerModalSeat) : null;
+  if (!p) {
+    playerModalSeat = null;
+    host.hidden = true;
+    host.innerHTML = '';
+    return;
   }
-  return `
-    <div class="banner-inline" role="status">
-      ${icon('pencil')}
-      <span class="banner-inline-text">为 <strong>${seat}号</strong> 选择身份</span>
-      <div class="banner-actions">
-        <button type="button" class="btn btn-utility" data-action="clear-role-game" data-seat="${seat}">${icon('eraser')}清除</button>
-        <button type="button" class="btn btn-utility" data-action="cancel-role-edit-game">取消</button>
+
+  const role = p.roleId ? ROLE_MAP[p.roleId] : null;
+  const name = p.name ? ` ${escapeText(p.name)}` : '';
+  const scrollTop = host.querySelector('.player-modal-body')?.scrollTop ?? 0;
+
+  let statusHtml;
+  if (p.alive) {
+    const isPendingAdd = state.phase === 'day' && state.daySubPhase === 'deathReview';
+    const chipAction = isPendingAdd ? 'add-pending-death' : 'mark-dead';
+    statusHtml = `
+      <section class="player-modal-section">
+        <h3 class="eyebrow">${isPendingAdd ? '加入死亡名单' : '标记阵亡'}</h3>
+        <div class="chip-row">
+          ${DEATH_REASONS.map(r => `
+            <button type="button" class="chip" data-action="${chipAction}" data-seat="${p.seat}" data-reason="${escapeAttr(r)}">${escapeText(r)}</button>
+          `).join('')}
+        </div>
+      </section>
+    `;
+  } else {
+    const when = p.deathDay != null ? `第${p.deathDay}${p.deathPhase === 'night' ? '晚' : '天'}` : '';
+    statusHtml = `
+      <section class="player-modal-section">
+        <h3 class="eyebrow">已阵亡</h3>
+        <div class="chip-row">
+          <span class="tag tag-accent">${escapeText(p.deathReason || '其他')}</span>
+          ${when ? `<span class="tag">${when}</span>` : ''}
+        </div>
+        <button type="button" class="btn btn-utility" data-action="revive-game" data-seat="${p.seat}">${icon('heart-pulse')}恢复存活</button>
+      </section>
+    `;
+  }
+
+  const assignedByRole = {};
+  for (const x of state.players) {
+    if (x.roleId) assignedByRole[x.roleId] = (assignedByRole[x.roleId] ?? 0) + 1;
+  }
+  const roleChips = ROLES.filter(r => (state.roleCounts[r.id] ?? 0) > 0).map(r => {
+    const remaining = state.roleCounts[r.id] - (assignedByRole[r.id] ?? 0);
+    return `<button type="button" class="chip${r.id === p.roleId ? ' is-active' : ''}" data-action="assign-role-game" data-role="${r.id}">${escapeText(r.name)}<span class="chip-meta">余${remaining}</span></button>`;
+  }).join('');
+  const roleHtml = `
+    <section class="player-modal-section">
+      <h3 class="eyebrow">身份</h3>
+      <div class="chip-row">
+        ${roleChips}
+        ${role ? `<button type="button" class="chip" data-action="clear-role-game" data-seat="${p.seat}">${icon('eraser')}清除</button>` : ''}
+      </div>
+    </section>
+  `;
+
+  const skillsHtml = role && role.skills.some(key => key !== 'lastTarget') ? `
+    <section class="player-modal-section">
+      <h3 class="eyebrow">技能</h3>
+      ${renderSkillStatusHtml(p, role)}
+    </section>
+  ` : '';
+
+  const loverAction = p.loverSeat != null
+    ? `<button type="button" class="btn btn-utility" data-action="unpair-lover-game" data-seat="${p.seat}">${icon('lover')}解除情侣（与 ${p.loverSeat}号）</button>`
+    : p.alive && (state.roleCounts.cupid ?? 0) > 0
+      ? `<button type="button" class="btn btn-utility" data-action="set-lover-game" data-seat="${p.seat}">${icon('lover')}设为情侣</button>`
+      : '';
+  const loverHtml = loverAction ? `
+    <section class="player-modal-section">
+      <h3 class="eyebrow">情侣</h3>
+      ${loverAction}
+    </section>
+  ` : '';
+
+  // 入场动画仅在打开时播放 —— 面板内的操作会整体重渲染，不应每次都重播
+  host.classList.toggle('is-entering', host.hidden);
+  host.hidden = false;
+  host.innerHTML = `
+    <div class="player-modal-backdrop" data-action="close-player-modal"></div>
+    <div class="player-modal-sheet" role="dialog" aria-modal="true" aria-label="${p.seat}号 玩家面板">
+      <div class="player-modal-head">
+        ${roleTile(role, { unset: !role })}
+        <div class="player-modal-heading">
+          <h2 class="player-modal-title">${p.seat}号${name}</h2>
+          <p class="player-modal-sub">${escapeText(role ? role.name : '未知身份')}${p.alive ? '' : ' · 已阵亡'}</p>
+        </div>
+        <button type="button" class="btn btn-icon btn-ghost" data-action="close-player-modal" aria-label="关闭">${icon('x')}</button>
+      </div>
+      <div class="player-modal-body">
+        ${statusHtml}
+        ${roleHtml}
+        ${skillsHtml}
+        ${loverHtml}
       </div>
     </div>
-    <div class="role-groups">
-      ${[CAMP.WOLF, CAMP.GOD, CAMP.CIV].map(camp => `
-        <div class="camp-group">
-          <h3 class="camp-group-title">${CAMP_NAME[camp]}</h3>
-          ${ROLES.filter(r => r.camp === camp && (state.roleCounts[r.id] ?? 0) > 0).map(r => {
-            const remaining = (state.roleCounts[r.id] ?? 0) - (assignedByRole[r.id] ?? 0);
-            return `
-              <button type="button" class="role-row-select" data-action="assign-role-game" data-role="${r.id}">
-                <span class="role-row-name">${r.name}</span>
-                <span class="tag${remaining <= 0 ? ' tag-outline' : ''}">剩余 ${remaining}</span>
-              </button>
-            `;
-          }).join('')}
-        </div>
-      `).join('')}
-    </div>
   `;
+  host.querySelector('.player-modal-body').scrollTop = scrollTop;
+}
+
+function openPlayerModal(seat) {
+  playerModalSeat = seat;
+  playerModalOpenedAt = Date.now();
+  render();
+}
+
+function closePlayerModal() {
+  if (playerModalSeat == null) return;
+  if (Date.now() - playerModalOpenedAt < 350) return;
+  playerModalSeat = null;
+  render();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2013,9 +2030,7 @@ function startGame() {
 
 /** 进局时重置玩家网格的纯 UI 展开状态。 */
 function resetGameUiState() {
-  gameExpandedSeat = null;
-  gameDeathPickerSeat = null;
-  gameRoleEditSeat = null;
+  playerModalSeat = null;
   loverPairMode = false;
   loverPairFirstSeat = null;
   dayActionMode = null;
@@ -2036,7 +2051,7 @@ function resetNightStepUiState() {
 /**
  * 点击存活/阵亡折叠卡片：情侣配对模式下路由至配对逻辑；
  * 夜晚步骤进行中点击存活卡片则路由至指认行动者 / 目标选择（SPEC §4.2 / §8.4）；
- * 否则切换信息面板展开。SPEC §8.3
+ * 否则打开玩家面板。SPEC §8.3
  */
 function handleCardTap(seat) {
   if (loverPairMode) {
@@ -2079,69 +2094,39 @@ function handleCardTap(seat) {
     }
   }
 
-  if (state.phase === 'day' && state.daySubPhase === 'deathReview' && player?.alive) {
-    const alreadyPending = state.pendingDeaths.some(d => d.seat === seat);
-    if (!alreadyPending) {
-      gameDeathPickerSeat = seat;
-      gameExpandedSeat = null;
-      render();
-      return;
-    }
-  }
-
   if (state.phase === 'day' && state.daySubPhase === 'triggers' && player?.alive
       && state.triggerQueue[0]?.type === 'shot') {
     resolveShotTrigger(seat);
     return;
   }
 
-  gameDeathPickerSeat = null;
-  gameRoleEditSeat = null;
-  gameExpandedSeat = gameExpandedSeat === seat ? null : seat;
-  render();
+  openPlayerModal(seat);
 }
 
-function cancelDeathPicker() {
-  gameDeathPickerSeat = null;
-  render();
-}
-
-/** 展开面板内的「修改身份」：切换为角色选择面板。SPEC §8.4 */
-function openRoleEditGame(seat) {
-  gameRoleEditSeat = seat;
-  render();
-}
-
-function cancelRoleEditGame() {
-  gameRoleEditSeat = null;
-  render();
-}
-
+/** 玩家面板内点选身份芯片。SPEC §8.4 */
 function assignRoleGame(roleId) {
-  if (gameRoleEditSeat == null) return;
-  const seat = gameRoleEditSeat;
+  if (playerModalSeat == null) return;
+  const seat = playerModalSeat;
   // 局内「修改身份」可能是对同一身份的重新确认（而非真正更换）——此时保留已消耗的
   // 技能状态，避免误将已用的解药/开枪等悄悄恢复为可用。仅真正更换身份时才重建 skills。
   const players = state.players.map(p =>
     p.seat === seat
       ? { ...p, roleId, effectiveRoleId: roleId, skills: roleId === p.roleId ? p.skills : initSkills(roleId) }
       : p);
-  gameRoleEditSeat = null;
   update({ players });
 }
 
 function clearRoleGame(seat) {
   const players = state.players.map(p =>
     p.seat === seat ? { ...p, roleId: null, effectiveRoleId: null, skills: {} } : p);
-  gameRoleEditSeat = null;
   update({ players });
 }
 
-/** 展开面板内的「设为情侣」：进入配对模式，本座位为已选的第一人。SPEC §5.3 */
+/** 玩家面板内的「设为情侣」：关闭面板并进入配对模式，本座位为已选的第一人。SPEC §5.3 */
 function startLoverPairFromGame(seat) {
   loverPairMode = true;
   loverPairFirstSeat = seat;
-  gameExpandedSeat = null;
+  playerModalSeat = null;
   render();
 }
 
@@ -2544,7 +2529,7 @@ function removePendingDeath(seat) {
 
 /** 死亡提案增删：法官手动添加一条死亡（点选存活玩家 → 选择死因）。SPEC §4.3 / §5.1 */
 function addPendingDeath(seat, reason) {
-  gameDeathPickerSeat = null;
+  playerModalSeat = null;
   if (state.pendingDeaths.some(d => d.seat === seat)) { render(); return; }
   const explanation = `${seat}号 ${reason}（法官手动添加）`;
   update({ pendingDeaths: [...state.pendingDeaths, { seat, reason, explanation }] });
@@ -2806,7 +2791,7 @@ function startNextNight(players, log) {
 // ══════════════════════════════════════════════════════════════════
 
 /**
- * 标记阵亡（含长按放逐 → 被投票）；情侣殉情 / 魅惑连锁回流 cascadeDeaths
+ * 标记阵亡（含放逐 → 被投票）；情侣殉情 / 魅惑连锁回流 cascadeDeaths
  * （SPEC §5.1 步骤 7–8），并与天亮结算共用同一条死亡触发队列链路（SPEC §5.4）——
  * 白痴翻牌免死者不落库死亡，猎人 / 狼王等触发进入 triggers 子阶段逐条呈现。
  * 先执行 + 撤销条。SPEC §5.4 / §8.2 / §8.3
@@ -2833,8 +2818,7 @@ function markDead(seat, reason) {
   const triggerQueue = [...state.triggerQueue, ...newTriggers];
   const daySubPhase = newTriggers.length ? 'triggers' : state.daySubPhase;
 
-  gameDeathPickerSeat = null;
-  gameExpandedSeat = null;
+  playerModalSeat = null;
   update({ players, triggerQueue, daySubPhase, alertQueue, log: [...state.log, ...entries, ...logAppend] });
   if (suppressedAlerts.length) notifyAlert();
 
@@ -2844,7 +2828,7 @@ function markDead(seat, reason) {
   showUndoBar(label);
 }
 
-/** 复活。经点击展开卡片后的按钮触发，不与长按共用手势。先执行 + 撤销条。SPEC §8.2 / §8.3 */
+/** 复活。经玩家面板内的按钮触发。先执行 + 撤销条。SPEC §8.2 / §8.3 */
 function revive(seat) {
   const players = state.players.map(p =>
     p.seat === seat ? { ...p, alive: true, deathReason: null, deathDay: null, deathPhase: null } : p);
@@ -2852,7 +2836,7 @@ function revive(seat) {
     day: state.day, phase: state.phase, type: 'death',
     actor: null, targets: [seat], text: `${seat}号 恢复存活`, result: null, ts: Date.now(),
   };
-  gameExpandedSeat = null;
+  playerModalSeat = null;
   update({ players, log: [...state.log, entry] });
   showUndoBar(`已恢复 ${seat}号 存活`);
 }
@@ -3126,11 +3110,10 @@ function bindLongPressGuard(el, onConfirm) {
 }
 
 /**
- * 长按 550ms 标记阵亡 → 内联死因芯片。SPEC §8.3
- * 与「点击展开信息面板」手势彻底分离：长按触发后拦截随之而来的 click，
- * 避免松开时误触发展开。
+ * 长按 550ms 打开玩家面板。SPEC §8.3
+ * 长按触发后拦截随之而来的 click，避免同一次手势再被当作点选目标。
  */
-function bindDeathLongPress(el, seat) {
+function bindCardLongPress(el, seat) {
   if (!el) return;
   let timer = null;
   let longPressed = false;
@@ -3145,9 +3128,7 @@ function bindDeathLongPress(el, seat) {
     timer = setTimeout(() => {
       longPressed = true;
       clear();
-      gameDeathPickerSeat = seat;
-      gameExpandedSeat = null;
-      render();
+      openPlayerModal(seat);
     }, LONG_PRESS_DEATH_MS);
   });
   el.addEventListener('pointerup', clear);
@@ -3340,12 +3321,10 @@ function handleAppClick(e) {
     case 'toggle-setting':      setSetting(el.dataset.setting, el.checked); break;
     case 'toggle-lover-mode': toggleLoverMode(); break;
     case 'start-game':        startGame(); break;
-    case 'toggle-alive-expand': handleCardTap(Number(el.dataset.seat)); break;
-    case 'cancel-death-picker': cancelDeathPicker(); break;
+    case 'tap-card':           handleCardTap(Number(el.dataset.seat)); break;
+    case 'close-player-modal': closePlayerModal(); break;
     case 'mark-dead':          markDead(Number(el.dataset.seat), el.dataset.reason); break;
     case 'revive-game':        revive(Number(el.dataset.seat)); break;
-    case 'edit-role-game':     openRoleEditGame(Number(el.dataset.seat)); break;
-    case 'cancel-role-edit-game': cancelRoleEditGame(); break;
     case 'assign-role-game':   assignRoleGame(el.dataset.role); break;
     case 'clear-role-game':    clearRoleGame(Number(el.dataset.seat)); break;
     case 'set-lover-game':     startLoverPairFromGame(Number(el.dataset.seat)); break;
@@ -3511,6 +3490,7 @@ function boot() {
 
   const app = document.getElementById('app');
   app.addEventListener('click', handleAppClick);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePlayerModal(); });
   app.addEventListener('input', handleAppInput);
   app.addEventListener('focusin', handleNameFocusIn);
   app.addEventListener('focusout', handleNameFocusOut);
