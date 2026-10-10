@@ -45,7 +45,7 @@ export const ROLES = [
   // ── 神职角色 ────────────────────────────────────────────────────
   { id: 'seer',        name: '预言家',   camp: CAMP.GOD, icon: 'icon-seer',        nightStep: 'seer',        skills: [],                     deathTrigger: null,          dayAction: null },
   { id: 'witch',       name: '女巫',     camp: CAMP.GOD, icon: 'icon-witch',       nightStep: 'witch',       skills: ['antidote','poison'],  deathTrigger: null,          dayAction: null },
-  { id: 'hunter',      name: '猎人',     camp: CAMP.GOD, icon: 'icon-hunter',      nightStep: null,          skills: ['shot'],               deathTrigger: 'shot',        dayAction: null },
+  { id: 'hunter',      name: '猎人',     camp: CAMP.GOD, icon: 'icon-hunter',      nightStep: 'hunter',      skills: ['shot'],               deathTrigger: 'shot',        dayAction: null },
   { id: 'guard',       name: '守卫',     camp: CAMP.GOD, icon: 'icon-guard',       nightStep: 'guard',       skills: ['lastTarget'],         deathTrigger: null,          dayAction: null },
   { id: 'idiot',       name: '白痴',     camp: CAMP.GOD, icon: 'icon-idiot',       nightStep: null,          skills: ['revealed'],           deathTrigger: 'idiotReveal', dayAction: null },
   { id: 'knight',      name: '骑士',     camp: CAMP.GOD, icon: 'icon-knight',      nightStep: null,          skills: ['duel'],               deathTrigger: null,          dayAction: 'duel' },
@@ -84,12 +84,15 @@ export const STEP_META = {
   fox:         { name: '狐狸',    instruction: '请狐狸选择起点，查验连续三名玩家中是否存在狼人',     targets: 1, firstNightOnly: false, info: 'foxCheck' },
   gravekeeper: { name: '守墓人',  instruction: '守墓人查验昨日被放逐者的身份',                    targets: 0, firstNightOnly: false, info: 'lastLynchedRole' },
   bear:        { name: '熊',      instruction: '判定熊是否咆哮（存活邻座是否有狼）',               targets: 0, firstNightOnly: false, info: 'bearGrowl' },
+  hunter:      { name: '猎人',    instruction: '请猎人睁眼，告知其今晚的开枪状态',                 targets: 0, firstNightOnly: false, info: 'hunterShot' },
+  // 机械狼局的首夜开局步骤：不在 nightOrder 中，由 app.js 在首夜最前插入（SPEC §4.2 / §8.4）
+  identify:    { name: '身份确认', instruction: '请全体玩家依次亮牌，法官逐一标记身份',            targets: 0, firstNightOnly: true,  info: null },
 };
 
 /** 默认夜晚顺序（SPEC §4.1 Step 3） */
 export const DEFAULT_NIGHT_ORDER = [
   'cupid', 'magician', 'guard', 'wolfkill', 'charm', 'mechwolf',
-  'witch', 'seer', 'psychic', 'fox', 'gravekeeper', 'bear',
+  'witch', 'seer', 'hunter', 'psychic', 'fox', 'gravekeeper', 'bear',
 ];
 
 /** 死因枚举（SPEC §5.2） */

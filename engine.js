@@ -331,9 +331,36 @@ export function computeStepInfo(state, stepId, targets = []) {
       return { known: true, result: growl ? '应咆哮' : '不咆哮', growl };
     }
 
+    case 'hunterShot': {
+      // 优先取牌面猎人；机械狼复制猎人时其 effectiveRoleId 亦为猎人，作为兜底
+      const alive = state.players.filter(p => p.alive);
+      const hunter = alive.find(p => p.roleId === 'hunter')
+        ?? alive.find(p => (p.effectiveRoleId ?? p.roleId) === 'hunter');
+      if (!hunter) return { known: false };
+      const canShoot = shotStatus(state, hunter.seat);
+      return { known: true, result: canShoot ? '可以开枪' : '不能开枪', seat: hunter.seat, canShoot };
+    }
+
     default:
       return { known: false };
   }
+}
+
+/**
+ * 开枪状态（猎人 / 狼王）：依本夜已收集的行动预演天亮结算（SPEC §5.1），
+ * 该座位将死于非常规死因（被毒 / 殉情）且 rules.abnormalDeathBlocksShot 开启时
+ * 不能开枪；shot 已消耗亦不能开枪。SPEC §5.4 / §9
+ *
+ * @param {GameState} state
+ * @param {number} seat
+ * @returns {boolean} 能否开枪
+ */
+export function shotStatus(state, seat) {
+  const player = state.players.find(p => p.seat === seat);
+  if (!player || player.skills?.shot === false) return false;
+  if (!state.rules?.abnormalDeathBlocksShot) return true;
+  const death = resolveDawn(state).deaths.find(d => d.seat === seat);
+  return !(death && ABNORMAL_DEATH_REASONS.includes(death.reason));
 }
 
 function roleOfSeat(state, seat) {

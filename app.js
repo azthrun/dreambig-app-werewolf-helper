@@ -25,7 +25,7 @@ import {
 
 import {
   resolveDawn, buildTriggerQueue, cascadeDeaths, computeStepInfo,
-  validateAction, activeNightSteps, campCounts, detectWin,
+  validateAction, activeNightSteps, shotStatus, campCounts, detectWin,
   pickFirstSpeaker, nextAliveSeat,
 } from './engine.js';
 
@@ -59,7 +59,7 @@ const SKILL_LABELS = {
 const STEP_LOG_VERB = {
   wolfkill: '击杀', guard: '守护', charm: '魅惑', mechwolf: '复制',
   cupid: '连接', magician: '交换', seer: '查验', psychic: '查验',
-  fox: '查验', gravekeeper: '查验', bear: '判定',
+  fox: '查验', gravekeeper: '查验', bear: '判定', hunter: '开枪状态',
 };
 
 /** 引擎警告类型中接入警报通道的子集（SPEC §10.3）。女巫同夜双药不在通道范围内。 */
@@ -263,6 +263,13 @@ function undo() {
  * 因字段缺失而崩溃。不匹配 STATE_VERSION 的存档已由 storage.js 整体丢弃，
  * 这里处理的是同版本内新增字段的向后兼容。
  */
+/** 旧存档的夜晚顺序缺少猎人步骤时，按默认位置（预言家之后）补入。SPEC §4.1 Step 3 */
+function withHunterStep(order) {
+  if (!Array.isArray(order) || order.includes('hunter')) return order;
+  const at = order.indexOf('seer') + 1;
+  return at > 0 ? [...order.slice(0, at), 'hunter', ...order.slice(at)] : [...order, 'hunter'];
+}
+
 function normalizeLoadedState(saved) {
   if (!saved) return saved;
   return {
@@ -273,6 +280,7 @@ function normalizeLoadedState(saved) {
     daySubPhase: saved.daySubPhase ?? null,
     pendingDeaths: saved.pendingDeaths ?? [],
     nightSteps: saved.nightSteps ?? [],
+    nightOrder: withHunterStep(saved.nightOrder),
     triggerQueue: saved.triggerQueue ?? [],
     pendingNightAdvance: saved.pendingNightAdvance ?? false,
     firstSpeakerDay: saved.firstSpeakerDay ?? null,
@@ -1020,7 +1028,7 @@ function roleForNightStep(stepId) {
  */
 function stepActorSlots(stepId) {
   return ROLES
-    .filter(r => r.nightStep === stepId && (state.roleCounts[r.id] ?? 0) > 0)
+    .filter(r => (stepId === 'identify' || r.nightStep === stepId) && (state.roleCounts[r.id] ?? 0) > 0)
     .map(role => ({
       role,
       total: state.roleCounts[role.id],
@@ -1032,6 +1040,7 @@ function stepActorSlots(stepId) {
 function isActorPickMode(stepId) {
   const slots = stepActorSlots(stepId);
   if (!slots.length) return false;
+  if (stepId === 'identify') return true;   // 身份确认步骤本身就是指认，完成即进入下一步
   if (actorPickOverride != null) return actorPickOverride;
   return state.day === 1 && slots.some(s => s.seats.length < s.total);
 }
@@ -1051,13 +1060,16 @@ function renderActorPickHtml(stepId, meta) {
   const chips = slots.map(s => `
     <button type="button" class="chip${s === active ? ' is-active' : ''}" data-action="pick-actor-role" data-role="${s.role.id}">${escapeText(s.role.name)} ${s.seats.length}/${s.total}</button>
   `).join('');
+  const isIdentify = stepId === 'identify';
+  const title = isIdentify ? `${escapeText(meta.name)} · 开局` : `${escapeText(meta.name)} · 指认身份`;
+  const lead = isIdentify ? '本局有机械狼，请全体玩家依次亮牌' : `请${escapeText(meta.name)}睁眼`;
   return `
     <div class="phase-step">
       <div class="phase-step-header">
         ${roleTile(active.role)}
         <div class="phase-step-heading">
-          <h2 class="phase-step-title">${escapeText(meta.name)} · 指认身份</h2>
-          <p class="phase-step-instruction">请${escapeText(meta.name)}睁眼 —— 在下方点选座位，标记为「${escapeText(active.role.name)}」</p>
+          <h2 class="phase-step-title">${title}</h2>
+          <p class="phase-step-instruction">${allFilled ? '全部身份已标记 —— 点「完成指认」继续' : `${lead} —— 在下方点选座位，标记为「${escapeText(active.role.name)}」`}</p>
         </div>
       </div>
       <div class="actor-pick-chips">${chips}</div>
@@ -1121,8 +1133,13 @@ function renderNightStepBody(stepId, meta) {
     const info = computeStepInfo(state, stepId, []);
     if (!info.known) return { body: UNKNOWN_INFO_NOTE, confirmDisabled: false };
     const seatTag = info.seat != null ? `<span class="tag">${info.seat}号</span>` : '';
+    // 开枪状态依本夜行动推算：女巫 / 魔术师排在猎人之后时，结果可能随其行动改变
+    const laterSteps = state.nightSteps.slice(state.stepIndex + 1);
+    const hunterCaveat = stepId === 'hunter' && laterSteps.some(id => id === 'witch' || id === 'magician')
+      ? '<p class="note">女巫 / 魔术师尚未行动，开枪状态可能改变</p>'
+      : '';
     return {
-      body: `<div class="step-info-answer">${seatTag}<span class="answer-text">${escapeText(info.result)}</span></div>`,
+      body: `<div class="step-info-answer">${seatTag}<span class="answer-text">${escapeText(info.result)}</span></div>${hunterCaveat}`,
       confirmDisabled: false,
     };
   }
@@ -1144,7 +1161,38 @@ function renderNightStepBody(stepId, meta) {
     body = `<div class="step-info-answer"><span class="tag">${targetsLabel}</span></div>${UNKNOWN_INFO_NOTE}`;
   }
 
+  if (stepId === 'wolfkill') body += renderWolfkingShotHtml();
   return { body, confirmDisabled: nightStepTargets.length < meta.targets };
+}
+
+/**
+ * 狼人步骤中各存活狼王的开枪状态。以本步骤已点选的刀口一并预演（刀中狼王情侣会致其殉情）。
+ * 女巫 / 魔术师排在狼人之后时，状态可能随其行动改变。SPEC §9
+ */
+function wolfkingShotStatuses() {
+  const wolfkings = state.players.filter(p => p.alive && (p.effectiveRoleId ?? p.roleId) === 'wolfking');
+  if (!wolfkings.length) return [];
+  const preview = nightStepTargets.length
+    ? { ...state, nightActions: { ...state.nightActions, wolfTarget: nightStepTargets[0] } }
+    : state;
+  return wolfkings.map(p => ({ seat: p.seat, canShoot: shotStatus(preview, p.seat) }));
+}
+
+function renderWolfkingShotHtml() {
+  const statuses = wolfkingShotStatuses();
+  if (!statuses.length) {
+    return (state.roleCounts.wolfking ?? 0) > 0
+      ? '<p class="note">狼王开枪状态：未知身份 — 请手动判断</p>'
+      : '';
+  }
+  const laterSteps = state.nightSteps.slice(state.stepIndex + 1);
+  const caveat = laterSteps.some(id => id === 'witch' || id === 'magician')
+    ? '<p class="note">女巫 / 魔术师尚未行动，开枪状态可能改变</p>'
+    : '';
+  const rows = statuses.map(s => `
+    <div class="step-info-answer"><span class="tag">狼王 ${s.seat}号</span><span class="answer-text">${s.canShoot ? '可以开枪' : '不能开枪'}</span></div>
+  `).join('');
+  return rows + caveat;
 }
 
 /** 女巫步骤：先显示今晚死亡目标，再呈现解药 / 毒药 / 不使用。SPEC §9 */
@@ -2019,9 +2067,18 @@ function startGame() {
     screen: 'game',
     log: [...state.log, entry],
     startedAt: Date.now(),
-    nightSteps: activeNightSteps(state),
+    nightSteps: firstNightSteps(state),
   });
   requestWakeLock();
+}
+
+/**
+ * 首夜步骤序列。有机械狼的局，首夜轮次开始前须先确认全部身份（机械狼复制需要
+ * 法官已知全员身份），因此在最前插入「身份确认」步骤。SPEC §4.2 / §8.4
+ */
+function firstNightSteps(s) {
+  const steps = activeNightSteps(s);
+  return (s.roleCounts.mechwolf ?? 0) > 0 ? ['identify', ...steps] : steps;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2181,9 +2238,27 @@ function startActorPick() {
 }
 
 function finishActorPick() {
+  if (state.nightSteps[state.stepIndex] === 'identify') {
+    confirmIdentifyStep();
+    return;
+  }
   actorPickOverride = false;
   actorPickRoleId = null;
   render();
+}
+
+/**
+ * 机械狼局的首夜开局步骤「身份确认」：法官在首夜轮次开始前标记全部身份，
+ * 完成后进入正式夜晚步骤。未标记满亦可继续 —— 指认永不阻断流程。SPEC §4.2 / §8.4
+ */
+function confirmIdentifyStep() {
+  const known = state.players.filter(p => p.roleId != null).length;
+  const entry = {
+    day: state.day, phase: state.phase, type: 'system',
+    actor: null, targets: [], text: `身份确认完成（已标记 ${known}/${state.players.length}）`, result: null, ts: Date.now(),
+  };
+  resetNightStepUiState();
+  update({ stepIndex: state.stepIndex + 1, log: [...state.log, entry] });
 }
 
 /** 点选当前夜晚步骤的目标座位。SPEC §4.2 */
@@ -2321,6 +2396,11 @@ function confirmNightStep() {
       resultText = info.known ? info.result : '未知身份 — 请手动判断';
       break;
     }
+    case 'hunter': {
+      const info = computeStepInfo(state, 'hunter', []);
+      resultText = info.known ? info.result : '未知身份 — 请手动判断';
+      break;
+    }
     case 'bear': {
       const info = computeStepInfo(state, 'bear', []);
       resultText = info.known ? info.result : '未知身份 — 请手动判断';
@@ -2333,10 +2413,19 @@ function confirmNightStep() {
   }
 
   const entry = buildStepLogEntry(stepId, actorSeat, logTargets, resultText);
+  const extraEntries = stepId === 'wolfkill'
+    ? wolfkingShotStatuses().map(s => {
+        const result = s.canShoot ? '可以开枪' : '不能开枪';
+        return {
+          day: state.day, phase: state.phase, type: 'skill',
+          actor: s.seat, targets: [], text: `狼王开枪状态 → ${result}`, result, ts: Date.now(),
+        };
+      })
+    : [];
   const { alertQueue, logAppend } = appendAlerts(stepAlerts);
   const patch = {
     players, nightActions,
-    log: [...state.log, entry, ...logAppend],
+    log: [...state.log, entry, ...extraEntries, ...logAppend],
     stepIndex: state.stepIndex + 1,
     alertQueue,
   };
