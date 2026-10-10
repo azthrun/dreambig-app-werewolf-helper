@@ -440,7 +440,7 @@ export function activeNightSteps(state) {
 
     // 未找到已知行动者：座位身份采用渐进填充（SPEC §8.4），此时不能仅凭
     // "尚无已知行动者" 就判定该角色缺席 —— 局型配置中若仍配有该角色，且
-    // 尚有存活座位身份未知，则保留该步骤，交由法官点选时隐式补全身份。
+    // 尚有存活座位身份未知，则保留该步骤，交由法官在该步骤指认行动者。
     const roleCounts = state.roleCounts ?? {};
     const configured = ROLES.some(r => r.nightStep === stepId && (roleCounts[r.id] ?? 0) > 0);
     if (!configured) return false;

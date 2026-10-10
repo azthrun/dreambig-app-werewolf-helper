@@ -1160,11 +1160,7 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 }
 .timer-field:last-child { border-bottom: none; }
 
-/* ── Step 4：身份分配 ── */
-.assign-grid { display: grid; gap: 10px; }
-.assign-grid[data-columns="3"] { grid-template-columns: repeat(3, 1fr); }
-.assign-grid[data-columns="4"] { grid-template-columns: repeat(4, 1fr); }
-
+/* ── 身份选择行（局内「修改身份」） ── */
 .role-row-select {
   display: flex;
   align-items: center;
@@ -1184,7 +1180,6 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 .role-row-select:last-child { border-bottom: none; }
 .role-row-select:active { background: var(--surface-featured); }
 .role-row-select:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
-.role-row-select-meta { font: var(--type-caption); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ══════════════════════════════════════════════════════════════════
    通用占位屏 —— 局内 / 日志 / 战报的正式内容见各自小节
@@ -1230,6 +1225,11 @@ input, textarea { -webkit-user-select: text; user-select: text; font-family: var
 .answer-text { font: var(--type-heading-3); letter-spacing: var(--tracking-heading-3); }
 
 .witch-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* 指认行动者 —— 角色芯片与行动阶段的行动者一行。SPEC §8.4 */
+.actor-pick-chips { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.actor-line { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+.actor-line .note { margin: 0; }
 
 /* 技能状态芯片改为可点击按钮，用于手动修正（SPEC §6） */
 .skill-chip-toggle {

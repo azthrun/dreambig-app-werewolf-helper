@@ -8,8 +8,7 @@
  *   · app.js     —— 状态持有、副作用、DOM 渲染、手势
  *
  * 状态容器（唯一写入口 / 撤销 / 版本化持久化）、屏幕路由、设置向导
- * 全部四步（人数与角色牌 #7、玩家名单与姓名池 #8、夜晚顺序与计时 #8、
- * 分配身份与开局 #9）、局内玩家网格与死亡标记（#10）、夜晚流程引导 / 技能
+ * 全部三步（人数与角色牌 #7、玩家名单与姓名池 #8、夜晚顺序与计时 #8）、局内玩家网格与死亡标记（#10）、夜晚流程引导 / 技能
  * 追踪 / 信息展示（#11）、天亮结算 / 死亡触发队列 / 警报通道（#12）、
  * 白天流程与主动行为：放逐、骑士决斗、白狼王自爆带人、普通狼人自爆、
  * 情侣手动配对、进入下一夜（#13）与主题应用、计时器（自由 / 发言两种模式）
@@ -46,7 +45,7 @@ const HISTORY_DEPTH = 20;               // 全量快照深度（SPEC §8.5）
 const MIN_PLAYERS = 6;
 const MAX_PLAYERS = 20;
 
-const SCREENS = ['setup1', 'setup2', 'setup3', 'setup4', 'game', 'log', 'report'];
+const SCREENS = ['setup1', 'setup2', 'setup3', 'game', 'log', 'report'];
 const WITCH_SELF_SAVE_LABEL = { never: '不可', firstNightOnly: '仅首夜', always: '始终' };
 
 /** 技能槽显示名（SPEC §6）。lastTarget 为连守记录，非消耗型，不作为状态芯片展示。 */
@@ -89,9 +88,8 @@ let namePool = { pool: [], lastRoster: [] };
 /** Step 3「高级规则」折叠区的展开状态 —— 纯 UI 瞬态，不入 GameState。默认收起。 */
 let advancedRulesOpen = false;
 
-// ── Step 4 身份分配 —— 纯 UI 选择状态，不入 GameState/撤销栈 ──
-let identitySelectedSeat = null;   // 当前待分配身份的座位
-let loverPairMode = false;         // 「设为情侣」模式是否开启（Step 4 与局内共用）
+// ── 情侣配对 —— 纯 UI 选择状态，不入 GameState/撤销栈 ──
+let loverPairMode = false;         // 「设为情侣」模式是否开启
 let loverPairFirstSeat = null;     // 情侣配对已选中的第一个座位
 
 // ── 白天主动行为 —— 骑士决斗 / 白狼王自爆带人 / 狼人自爆，纯 UI 瞬态，不入 GameState/撤销栈。SPEC §4.3 / §5.4 ──
@@ -109,6 +107,8 @@ let gameRoleEditSeat = null;       // 当前正在「修改身份」的座位
 let nightStepTargets = [];         // 当前步骤已点选的目标座位（非女巫步骤）
 let witchChoice = null;            // 'save' | 'poison' | 'skip' | null —— 女巫本步骤已选择的行动
 let witchPoisonTarget = null;      // 女巫「使用毒药」已点选的目标座位
+let actorPickOverride = null;      // 指认行动者模式：null = 自动（首夜且未指认满时进入）| true | false
+let actorPickRoleId = null;        // 指认时选中的角色；null = 自动取第一个未指认满的角色
 
 // ── 日志页 —— 筛选与分组展开，纯 UI 瞬态，不入 GameState/撤销栈。SPEC §16.2 ──
 let logFilter = 'all';             // 'all' | 'death' | 'skill' | 'note'
@@ -268,6 +268,7 @@ function normalizeLoadedState(saved) {
   if (!saved) return saved;
   return {
     ...saved,
+    screen: saved.screen === 'setup4' ? 'setup3' : saved.screen,  // 旧存档可能停在已移除的 Step 4
     alertQueue: saved.alertQueue ?? [],
     rules: { ...DEFAULT_RULES, ...(saved.rules ?? {}) },
     daySubPhase: saved.daySubPhase ?? null,
@@ -297,7 +298,6 @@ function render() {
     case 'setup1': renderSetup1(); break;
     case 'setup2': renderSetup2(); break;
     case 'setup3': renderSetup3(); break;
-    case 'setup4': renderSetup4(); break;
     case 'game':   renderGame();   break;
     case 'log':    renderLog();    break;
     case 'report': renderReport(); break;
@@ -315,24 +315,23 @@ function roleTile(role, { unset = false, cls = '' } = {}) {
   return `<span class="role-tile ${unset ? 'is-unset' : camp}${cls ? ' ' + cls : ''}">${icon(role ? role.icon.replace('icon-', '') : 'user')}</span>`;
 }
 
-const SETUP_TITLE = ['局型配置', '玩家名单', '流程与规则', '分配身份'];
+const SETUP_TITLE = ['局型配置', '玩家名单', '流程与规则'];
 const SETUP_SUB = [
   '选择人数与本局使用的角色牌',
   '座位固定，姓名可上下调整',
   '夜晚顺序、计时默认值与房规',
-  '点座位再点角色，或一键随机',
 ];
 
-/** 四步共用的向导页眉：步骤计数 + 进度点 + 标题 + 副标题。SPEC §4.1 */
+/** 三步共用的向导页眉：步骤计数 + 进度点 + 标题 + 副标题。SPEC §4.1 */
 function setupHeadHtml(step) {
-  const dots = [1, 2, 3, 4].map(i => {
+  const dots = [1, 2, 3].map(i => {
     const cls = i === step ? 'is-current' : i < step ? 'is-done' : '';
     return `<span class="setup-dot${cls ? ' ' + cls : ''}"></span>`;
   }).join('');
   return `
     <div class="setup-head">
       <div class="setup-head-row">
-        <span class="eyebrow setup-step-label">步骤 ${step} / 4</span>
+        <span class="eyebrow setup-step-label">步骤 ${step} / 3</span>
         <div class="setup-dots">${dots}</div>
       </div>
       <div class="setup-title">${SETUP_TITLE[step - 1]}</div>
@@ -341,13 +340,13 @@ function setupHeadHtml(step) {
   `;
 }
 
-/** 四步共用的向导页脚：上一步 + 下一步 / 开始游戏。SPEC §4.1 */
+/** 三步共用的向导页脚：上一步 + 下一步 / 开始游戏。SPEC §4.1 */
 function setupFootHtml(step, { nextAction, nextDisabled = false } = {}) {
   const prev = step > 1
     ? `<button type="button" class="btn btn-secondary" data-action="goto-setup${step - 1}">${icon('chevron-left')}上一步</button>`
     : '';
-  const label = step === 4 ? '开始游戏' : '下一步';
-  const nextIcon = step === 4 ? 'play' : 'chevron-right';
+  const label = step === 3 ? '开始游戏' : '下一步';
+  const nextIcon = step === 3 ? 'play' : 'chevron-right';
   return `
     <div class="setup-foot">
       ${prev}
@@ -592,7 +591,7 @@ function renderSetup3() {
         </details>
       </div>
 
-      ${setupFootHtml(3, { nextAction: 'goto-setup4' })}
+      ${setupFootHtml(3, { nextAction: 'start-game' })}
     </div>
   `;
 
@@ -600,107 +599,6 @@ function renderSetup3() {
   host.querySelector('#advanced-rules').addEventListener('toggle', (e) => {
     advancedRulesOpen = e.target.open;
   });
-}
-
-/** 设置 Step 4 —— 分配身份。紧凑网格：点座位 → 点角色。SPEC §4.1 / §8.4 */
-function renderSetup4() {
-  const host = document.getElementById('screen-setup4');
-  if (!host) return;
-
-  const assigned = state.players.filter(p => p.roleId).length;
-  const assignedByRole = {};
-  for (const p of state.players) {
-    if (p.roleId) assignedByRole[p.roleId] = (assignedByRole[p.roleId] ?? 0) + 1;
-  }
-
-  const seatsHtml = state.players.map(p => {
-    const role = p.roleId ? ROLE_MAP[p.roleId] : null;
-    const isPicking = identitySelectedSeat === p.seat || loverPairFirstSeat === p.seat;
-    const loverTag = p.loverSeat != null
-      ? `<span class="player-card-lover">${icon('lover')}${p.loverSeat}号</span>` : '';
-    return `
-      <button type="button"
-              class="player-card is-selectable${isPicking ? ' is-selected' : ''}"
-              data-action="select-seat4" data-seat="${p.seat}">
-        <span class="player-card-seat">${p.seat}号</span>
-        ${roleTile(role, { unset: !role })}
-        <span class="player-card-name">${p.name || `座位${p.seat}`}</span>
-        <span class="player-card-role">${role ? role.name : '未知身份'}</span>
-        ${loverTag}
-      </button>
-    `;
-  }).join('');
-
-  const rolePickerHtml = identitySelectedSeat != null ? `
-    <div class="banner-inline" role="status">
-      <span>为 ${identitySelectedSeat}号 选择身份</span>
-      <div class="banner-actions">
-        <button type="button" class="btn btn-ghost btn-sm" data-action="clear-role4" data-seat="${identitySelectedSeat}">清除身份</button>
-        <button type="button" class="btn btn-ghost btn-sm" data-action="select-seat4" data-seat="${identitySelectedSeat}">取消</button>
-      </div>
-    </div>
-    <div class="role-groups">
-      ${[CAMP.WOLF, CAMP.GOD, CAMP.CIV].map(camp => {
-        const rows = ROLES.filter(r => r.camp === camp && (state.roleCounts[r.id] ?? 0) > 0);
-        if (!rows.length) return '';
-        return `
-        <div class="card card-flush">
-          <div class="card-head">
-            <span class="camp-dot ${{ [CAMP.WOLF]: 'camp-wolf', [CAMP.GOD]: 'camp-god', [CAMP.CIV]: 'camp-civ' }[camp]}"></span>
-            <span>${CAMP_NAME[camp]}</span>
-          </div>
-          ${rows.map(r => {
-            const total = state.roleCounts[r.id] ?? 0;
-            const used = assignedByRole[r.id] ?? 0;
-            return `
-              <button type="button" class="role-row-select" data-action="assign-role4" data-role="${r.id}"${used >= total ? ' disabled' : ''}>
-                ${roleTile(r, { unset: used >= total })}
-                <span class="role-row-name">${r.name}</span>
-                <span class="role-row-select-meta">${used} / ${total}</span>
-              </button>
-            `;
-          }).join('')}
-        </div>`;
-      }).join('')}
-    </div>
-  ` : '';
-
-  const loverBannerHtml = loverPairMode ? `
-    <div class="banner-inline" role="status">
-      <span>${loverPairFirstSeat == null ? '点选两名玩家建立情侣关系' : `已选 ${loverPairFirstSeat}号 · 再点选一名玩家`}</span>
-      <div class="banner-actions">
-        <button type="button" class="btn btn-ghost btn-sm" data-action="toggle-lover-mode">取消</button>
-      </div>
-    </div>
-  ` : '';
-
-  host.innerHTML = `
-    <div class="setup-screen">
-      ${setupHeadHtml(4)}
-
-      <div class="setup-body">
-        <div class="count-row">
-          <span class="eyebrow">身份分配</span>
-          <span class="role-count${assigned === state.playerCount ? ' is-met' : ''}">已分配 ${assigned} / ${state.playerCount}</span>
-        </div>
-
-        <div class="preset-row">
-          <button type="button" class="btn btn-utility" data-action="assign-random-roles">${icon('shuffle')}随机分配剩余身份</button>
-          ${(state.roleCounts.cupid ?? 0) > 0 ? `
-            <button type="button" class="btn btn-utility${loverPairMode ? ' is-active' : ''}" data-action="toggle-lover-mode">${icon('lover')}设为情侣</button>
-          ` : ''}
-        </div>
-
-        ${loverBannerHtml}
-
-        <div class="assign-grid" data-columns="${state.playerCount <= 9 ? 3 : 4}">${seatsHtml}</div>
-
-        ${rolePickerHtml}
-      </div>
-
-      ${setupFootHtml(4, { nextAction: 'start-game' })}
-    </div>
-  `;
 }
 
 /** 玩家网格列数：≤9→3、10–16→4、17–20→5。SPEC §12.2 */
@@ -1111,14 +1009,85 @@ function stepActorSeat(stepId) {
   return p ? p.seat : null;
 }
 
-/** 当前步骤对应的角色声明（用于 §8.4 隐式补全；wolfkill 存在多个候选角色时取第一个，即普通狼人）。 */
+/** 当前步骤对应的角色声明（步骤图标用；wolfkill 存在多个候选角色时取第一个，即普通狼人）。 */
 function roleForNightStep(stepId) {
   return ROLES.find(r => r.nightStep === stepId) ?? null;
+}
+
+/**
+ * 当前步骤的行动者角色及其指认进度：本局配有、且在该步骤睁眼的角色，各自已指认的座位。
+ * 以 roleId（而非 effectiveRoleId）归属 —— 指认的是牌面身份。SPEC §8.4
+ */
+function stepActorSlots(stepId) {
+  return ROLES
+    .filter(r => r.nightStep === stepId && (state.roleCounts[r.id] ?? 0) > 0)
+    .map(role => ({
+      role,
+      total: state.roleCounts[role.id],
+      seats: state.players.filter(p => p.roleId === role.id).map(p => p.seat),
+    }));
+}
+
+/** 当前步骤是否处于「指认行动者」模式：首夜未指认满时自动进入，法官可随时进出。SPEC §4.2 / §8.4 */
+function isActorPickMode(stepId) {
+  const slots = stepActorSlots(stepId);
+  if (!slots.length) return false;
+  if (actorPickOverride != null) return actorPickOverride;
+  return state.day === 1 && slots.some(s => s.seats.length < s.total);
+}
+
+/** 指认时当前选中的角色：法官点选的芯片优先，否则取第一个未指认满的角色。 */
+function activeActorSlot(slots) {
+  return slots.find(s => s.role.id === actorPickRoleId)
+    ?? slots.find(s => s.seats.length < s.total)
+    ?? slots[0];
+}
+
+/** 指认模式的步骤面板：角色芯片（进度）+ 提示；点选网格座位即指认。SPEC §4.2 / §8.4 */
+function renderActorPickHtml(stepId, meta) {
+  const slots = stepActorSlots(stepId);
+  const active = activeActorSlot(slots);
+  const allFilled = slots.every(s => s.seats.length >= s.total);
+  const chips = slots.map(s => `
+    <button type="button" class="chip${s === active ? ' is-active' : ''}" data-action="pick-actor-role" data-role="${s.role.id}">${escapeText(s.role.name)} ${s.seats.length}/${s.total}</button>
+  `).join('');
+  return `
+    <div class="phase-step">
+      <div class="phase-step-header">
+        ${roleTile(active.role)}
+        <div class="phase-step-heading">
+          <h2 class="phase-step-title">${escapeText(meta.name)} · 指认身份</h2>
+          <p class="phase-step-instruction">请${escapeText(meta.name)}睁眼 —— 在下方点选座位，标记为「${escapeText(active.role.name)}」</p>
+        </div>
+      </div>
+      <div class="actor-pick-chips">${chips}</div>
+      <p class="note">再点一次已指认的座位可取消</p>
+      <div class="phase-step-actions">
+        <button type="button" class="btn${allFilled ? '' : ' btn-utility'}" data-action="finish-actor-pick">${allFilled ? `${icon('check')}完成指认` : `${icon('skip-forward')}暂不指认`}</button>
+      </div>
+    </div>
+  `;
+}
+
+/** 行动阶段顶部的行动者一行：已指认的座位 + 「重选 / 指认」入口。SPEC §8.4 */
+function renderActorLineHtml(stepId) {
+  const slots = stepActorSlots(stepId);
+  if (!slots.length) return '';
+  const parts = slots
+    .filter(s => s.seats.length)
+    .map(s => `${escapeText(s.role.name)} ${s.seats.map(seat => `${seat}号`).join('、')}`);
+  return `
+    <div class="actor-line">
+      <span class="note">${parts.length ? parts.join(' · ') : '行动者尚未指认'}</span>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="start-actor-pick">${parts.length ? '重选' : '指认'}</button>
+    </div>
+  `;
 }
 
 /** 单个夜晚步骤面板：角色名 + 口播提示 + 目标选择/信息答案 + 完成·跳过。SPEC §4.2 / §9 */
 function renderNightStepHtml(stepId) {
   const meta = STEP_META[stepId];
+  if (isActorPickMode(stepId)) return renderActorPickHtml(stepId, meta);
   const { body, confirmDisabled } = renderNightStepBody(stepId, meta);
 
   const role = roleForNightStep(stepId);
@@ -1132,6 +1101,7 @@ function renderNightStepHtml(stepId) {
           <p class="phase-step-instruction">${escapeText(meta.instruction)}</p>
         </div>
       </div>
+      ${renderActorLineHtml(stepId)}
       ${body}
       <div class="phase-step-actions">
         <button type="button" class="btn btn-utility" data-action="skip-night-step">${icon('skip-forward')}跳过</button>
@@ -1522,6 +1492,11 @@ function activeSelectableSeats() {
     const stepId = steps[state.stepIndex];
     if (!stepId) return empty;
 
+    if (isActorPickMode(stepId)) {
+      const alive = new Set(state.players.filter(p => p.alive).map(p => p.seat));
+      return { selectable: alive, selected: new Set(stepActorSlots(stepId).flatMap(s => s.seats)) };
+    }
+
     if (stepId === 'witch') {
       if (witchChoice !== 'poison') return empty;
       const alive = new Set(state.players.filter(p => p.alive).map(p => p.seat));
@@ -1735,7 +1710,7 @@ function isSkillUsed(p, key) {
   return p.skills?.[key] === false;
 }
 
-/** 「修改身份」内联面板：与 Step 4 身份选择同款分组列表。SPEC §8.4 */
+/** 「修改身份」内联面板：按阵营分组的角色列表。SPEC §8.4 */
 function renderRoleEditPanelHtml(seat) {
   const assignedByRole = {};
   for (const p of state.players) {
@@ -1888,7 +1863,7 @@ function commitNamesToPool() {
 /**
  * 当前局型（roleCounts）中实际存在的夜晚步骤，依 nightOrder 排序。
  * 与 engine.js 的 activeNightSteps 不同：后者依据已分配的玩家身份判定，
- * 用于局内运行时；此处身份尚未分配（Step 4 在其之后），改依角色牌数量判定。
+ * 用于局内运行时；此处身份尚未指认（首夜随流程指认），改依角色牌数量判定。
  */
 function activeNightStepsForSetup(s) {
   const roleIds = Object.entries(s.roleCounts).filter(([, c]) => c > 0).map(([id]) => id);
@@ -1935,93 +1910,8 @@ function setSetting(key, value) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 设置 Step 4 —— 分配身份与开局
+// 情侣配对与开局
 // ══════════════════════════════════════════════════════════════════
-
-/**
- * 按 playerCount 补齐 players 数组（座位 1..N），保留已存在座位的数据。
- * Step 2（#8）尚未落地，姓名/排序留空，本票仅需座位与身份骨架存在。
- */
-function ensurePlayers() {
-  const bySeat = new Map(state.players.map(p => [p.seat, p]));
-  const next = [];
-  for (let seat = 1; seat <= state.playerCount; seat++) {
-    next.push(bySeat.get(seat) ?? createPlayer(seat));
-  }
-  const changed = next.length !== state.players.length || next.some((p, i) => p !== state.players[i]);
-  if (changed) update({ players: next }, { snapshot: false });
-}
-
-function enterSetup4() {
-  ensurePlayers();
-  identitySelectedSeat = null;
-  loverPairMode = false;
-  loverPairFirstSeat = null;
-  gotoScreen('setup4');
-}
-
-function selectSeat4(seat) {
-  if (loverPairMode) {
-    handleLoverSeatClick(seat);
-    return;
-  }
-  identitySelectedSeat = identitySelectedSeat === seat ? null : seat;
-  render();
-}
-
-function assignRole4(roleId) {
-  if (identitySelectedSeat == null) return;
-  const seat = identitySelectedSeat;
-  const players = state.players.map(p =>
-    p.seat === seat ? { ...p, roleId, effectiveRoleId: roleId, skills: initSkills(roleId) } : p);
-  identitySelectedSeat = null;
-  update({ players });
-}
-
-function clearRole4(seat) {
-  const players = state.players.map(p =>
-    p.seat === seat ? { ...p, roleId: null, effectiveRoleId: null, skills: {} } : p);
-  identitySelectedSeat = null;
-  update({ players });
-}
-
-/** 随机分配剩余身份。仅覆盖未分配座位与未分配满的角色。SPEC §4.1 Step4 */
-function randomAssignRemainingRoles() {
-  const assignedByRole = {};
-  for (const p of state.players) {
-    if (p.roleId) assignedByRole[p.roleId] = (assignedByRole[p.roleId] ?? 0) + 1;
-  }
-  const pool = [];
-  for (const [roleId, count] of Object.entries(state.roleCounts)) {
-    const remaining = count - (assignedByRole[roleId] ?? 0);
-    for (let i = 0; i < remaining; i++) pool.push(roleId);
-  }
-  shuffleCrypto(pool);
-
-  let i = 0;
-  const assignedSeats = [];
-  const players = state.players.map(p => {
-    if (p.roleId != null) return p;
-    const roleId = pool[i];
-    if (roleId == null) return p;
-    i++;
-    assignedSeats.push(p.seat);
-    return { ...p, roleId, effectiveRoleId: roleId, skills: initSkills(roleId) };
-  });
-  identitySelectedSeat = null;
-  update({ players });
-  if (assignedSeats.length) showUndoBar(`已随机分配 ${assignedSeats.length} 个座位的身份`);
-}
-
-/** Fisher–Yates，使用 crypto.getRandomValues。SPEC §4.1 Step4 */
-function shuffleCrypto(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const buf = new Uint32Array(1);
-    crypto.getRandomValues(buf);
-    const j = buf[0] % (i + 1);
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-}
 
 function toggleLoverMode() {
   loverPairMode = !loverPairMode;
@@ -2029,7 +1919,7 @@ function toggleLoverMode() {
   render();
 }
 
-/** 手动配对情侣：设置阶段点选两名玩家。SPEC §5.3 */
+/** 手动配对情侣：点选两名玩家。SPEC §5.3 */
 function handleLoverSeatClick(seat) {
   if (loverPairFirstSeat == null) {
     const player = state.players.find(p => p.seat === seat);
@@ -2090,7 +1980,7 @@ function unpairLovers(seat) {
 }
 
 /**
- * 开始游戏：始终可点击，未分配座位进入局内后为未知身份。SPEC §4.1 Step4 / §4.2
+ * 开始游戏：全员以未知身份进局，身份在首夜随各步骤指认。SPEC §4.1 Step3 / §4.2 / §8.4
  * 同时把本局姓名并入姓名池并记录为上次名单（SPEC §11.2）。
  */
 function startGame() {
@@ -2105,7 +1995,7 @@ function startGame() {
     result: null,
     ts: Date.now(),
   };
-  identitySelectedSeat = null;
+  ensurePlayersSynced();
   pendingResume = null;
   resetGameUiState();
   update({
@@ -2139,11 +2029,13 @@ function resetNightStepUiState() {
   nightStepTargets = [];
   witchChoice = null;
   witchPoisonTarget = null;
+  actorPickOverride = null;
+  actorPickRoleId = null;
 }
 
 /**
  * 点击存活/阵亡折叠卡片：情侣配对模式下路由至配对逻辑；
- * 夜晚步骤进行中点击存活卡片则路由至目标选择（SPEC §4.2 / §8.4）；
+ * 夜晚步骤进行中点击存活卡片则路由至指认行动者 / 目标选择（SPEC §4.2 / §8.4）；
  * 否则切换信息面板展开。SPEC §8.3
  */
 function handleCardTap(seat) {
@@ -2177,6 +2069,10 @@ function handleCardTap(seat) {
   if (state.phase === 'night' && player?.alive) {
     const steps = state.nightSteps;
     const stepId = steps[state.stepIndex];
+    if (stepId && isActorPickMode(stepId)) {
+      toggleStepActor(seat, stepId);
+      return;
+    }
     if (stepId && (stepId === 'witch' ? witchChoice === 'poison' : STEP_META[stepId].targets > 0)) {
       selectStepTarget(seat, stepId);
       return;
@@ -2254,20 +2150,59 @@ function startLoverPairFromGame(seat) {
 // ══════════════════════════════════════════════════════════════════
 
 /**
- * 点选当前夜晚步骤的目标座位。含身份隐式补全（SPEC §8.4）：
- * 若该座位身份未知，补全为当前步骤对应的角色。
+ * 指认当前步骤的行动者：把座位标记为选中的角色，点已指认的座位则取消。SPEC §4.2 / §8.4
+ * 单张牌的角色点选新座位即「移动」；多张牌的角色不设上限（辅助型 —— 不阻断）。
+ * 全部指认满后自动进入行动阶段。
  */
-function selectStepTarget(seat, stepId) {
-  let players = state.players;
-  const player = players.find(p => p.seat === seat);
-  if (player && player.roleId == null) {
-    const role = roleForNightStep(stepId);
-    if (role) {
-      players = players.map(p =>
-        p.seat === seat ? { ...p, roleId: role.id, effectiveRoleId: role.id, skills: initSkills(role.id) } : p);
-    }
-  }
+function toggleStepActor(seat, stepId) {
+  const slots = stepActorSlots(stepId);
+  if (!slots.length) return;
+  const slot = activeActorSlot(slots);
+  const roleId = slot.role.id;
+  const player = state.players.find(p => p.seat === seat);
+  if (!player) return;
 
+  const blank = { roleId: null, effectiveRoleId: null, skills: {} };
+  let players;
+  // 已是本步骤行动者的座位（无论哪种角色）：取消指认，并把选中角色切到它，便于随即改点他人
+  const held = slots.find(s => s.role.id === player.roleId);
+  if (held) {
+    players = state.players.map(p => p.seat === seat ? { ...p, ...blank } : p);
+    actorPickRoleId = held.role.id;
+  } else {
+    players = state.players.map(p => {
+      if (p.seat === seat) return { ...p, roleId, effectiveRoleId: roleId, skills: initSkills(roleId) };
+      if (slot.total === 1 && p.roleId === roleId) return { ...p, ...blank };
+      return p;
+    });
+    actorPickRoleId = null;
+    const filled = slots.every(s =>
+      players.filter(p => p.roleId === s.role.id).length >= s.total);
+    if (filled) actorPickOverride = null;
+  }
+  update({ players });
+}
+
+/** 指认芯片：切换当前要指认的角色（同一步骤有多种角色时，如 普通狼人 / 狼王）。 */
+function pickActorRole(roleId) {
+  actorPickRoleId = roleId;
+  render();
+}
+
+function startActorPick() {
+  actorPickOverride = true;
+  actorPickRoleId = null;
+  render();
+}
+
+function finishActorPick() {
+  actorPickOverride = false;
+  actorPickRoleId = null;
+  render();
+}
+
+/** 点选当前夜晚步骤的目标座位。SPEC §4.2 */
+function selectStepTarget(seat, stepId) {
   if (stepId === 'witch') {
     witchPoisonTarget = seat;
   } else {
@@ -2281,12 +2216,7 @@ function selectStepTarget(seat, stepId) {
       nightStepTargets = [...nightStepTargets, seat];
     }
   }
-
-  if (players !== state.players) {
-    update({ players });
-  } else {
-    render();
-  }
+  render();
 }
 
 /** 结构化步骤日志文本，格式如「预言家查验 5号 → 狼人」。SPEC §9 / §16.1 */
@@ -3394,7 +3324,6 @@ function handleAppClick(e) {
     case 'goto-setup1':      gotoScreen('setup1'); break;
     case 'goto-setup2':      gotoScreen('setup2'); break;
     case 'goto-setup3':      gotoScreen('setup3'); break;
-    case 'goto-setup4':      enterSetup4(); break;
     case 'goto-game':        gotoScreen('game'); break;
     case 'goto-log':         gotoScreen('log'); break;
     case 'undo':              undo(); break;
@@ -3409,10 +3338,6 @@ function handleAppClick(e) {
     case 'set-witch-self-save': setRule('witchSelfSave', el.dataset.value); break;
     case 'set-win-condition':  setRule('winCondition', el.dataset.value); break;
     case 'toggle-setting':      setSetting(el.dataset.setting, el.checked); break;
-    case 'select-seat4':      selectSeat4(Number(el.dataset.seat)); break;
-    case 'assign-role4':      assignRole4(el.dataset.role); break;
-    case 'clear-role4':       clearRole4(Number(el.dataset.seat)); break;
-    case 'assign-random-roles': randomAssignRemainingRoles(); break;
     case 'toggle-lover-mode': toggleLoverMode(); break;
     case 'start-game':        startGame(); break;
     case 'toggle-alive-expand': handleCardTap(Number(el.dataset.seat)); break;
@@ -3430,6 +3355,9 @@ function handleAppClick(e) {
     case 'confirm-night-step': confirmNightStep(); break;
     case 'skip-night-step':    skipNightStep(); break;
     case 'witch-choice':       chooseWitchAction(el.dataset.choice); break;
+    case 'pick-actor-role':    pickActorRole(el.dataset.role); break;
+    case 'start-actor-pick':   startActorPick(); break;
+    case 'finish-actor-pick':  finishActorPick(); break;
     case 'end-night':          endNight(); break;
     case 'confirm-pending-deaths': confirmPendingDeaths(); break;
     case 'remove-pending-death':   removePendingDeath(Number(el.dataset.seat)); break;
