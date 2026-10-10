@@ -331,6 +331,22 @@ export function computeStepInfo(state, stepId, targets = []) {
       return { known: true, result: growl ? '应咆哮' : '不咆哮', growl };
     }
 
+    case 'hunterShot': {
+      // 依本夜已收集的行动预演天亮结算：猎人若将死于非常规死因（被毒 / 殉情），
+      // 依 rules.abnormalDeathBlocksShot 判为不能开枪（SPEC §5.4）。
+      // 优先取牌面猎人；机械狼复制猎人时其 effectiveRoleId 亦为猎人，作为兜底
+      const alive = state.players.filter(p => p.alive);
+      const hunter = alive.find(p => p.roleId === 'hunter')
+        ?? alive.find(p => (p.effectiveRoleId ?? p.roleId) === 'hunter');
+      if (!hunter) return { known: false };
+      const seat = hunter.seat;
+      if (hunter.skills?.shot === false) return { known: true, result: '不能开枪', seat, canShoot: false };
+      const blocks = !!state.rules?.abnormalDeathBlocksShot;
+      const death = resolveDawn(state).deaths.find(d => d.seat === seat);
+      const canShoot = !(blocks && death && ABNORMAL_DEATH_REASONS.includes(death.reason));
+      return { known: true, result: canShoot ? '可以开枪' : '不能开枪', seat, canShoot };
+    }
+
     default:
       return { known: false };
   }

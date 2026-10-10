@@ -601,6 +601,68 @@ test('computeStepInfo bearGrowl: 应咆哮', () => {
   assert(info.known === true && info.growl === true, `实际 ${JSON.stringify(info)}`);
 });
 
+test('computeStepInfo hunterShot: 无事发生 → 可以开枪', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'wolf', 2: 'hunter', 3: 'witch' }, nightActions: { wolfTarget: 3 } });
+  const info = computeStepInfo(state, 'hunter', []);
+  assert(info.known && info.canShoot === true && info.seat === 2, `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo hunterShot: 被狼刀仍可开枪', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'wolf', 2: 'hunter', 3: 'witch' }, nightActions: { wolfTarget: 2 } });
+  const info = computeStepInfo(state, 'hunter', []);
+  assert(info.known && info.canShoot === true, `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo hunterShot: 被女巫毒 → 不能开枪（默认开关）', () => {
+  const state = makeState({
+    playerCount: 3, roles: { 1: 'wolf', 2: 'hunter', 3: 'witch' },
+    nightActions: { wolfTarget: 3, witchAction: { type: 'poison', target: 2 } },
+  });
+  const info = computeStepInfo(state, 'hunter', []);
+  assert(info.known && info.canShoot === false && info.result === '不能开枪', `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo hunterShot: 被毒但关闭抑制开关 → 可以开枪', () => {
+  const state = makeState({
+    playerCount: 3, roles: { 1: 'wolf', 2: 'hunter', 3: 'witch' },
+    nightActions: { witchAction: { type: 'poison', target: 2 } },
+    rules: { abnormalDeathBlocksShot: false },
+  });
+  const info = computeStepInfo(state, 'hunter', []);
+  assert(info.known && info.canShoot === true, `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo hunterShot: 情侣被刀 → 猎人殉情 → 不能开枪', () => {
+  const state = makeState({
+    playerCount: 4, roles: { 1: 'wolf', 2: 'hunter', 3: 'villager', 4: 'villager' },
+    lovers: [[2, 3]], nightActions: { wolfTarget: 3 },
+  });
+  const info = computeStepInfo(state, 'hunter', []);
+  assert(info.known && info.canShoot === false, `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo hunterShot: 魔术师交换使毒药落到猎人 → 不能开枪', () => {
+  const state = makeState({
+    playerCount: 4, roles: { 1: 'wolf', 2: 'hunter', 3: 'villager', 4: 'witch' },
+    nightActions: { magicianSwap: [2, 3], witchAction: { type: 'poison', target: 3 } },
+  });
+  const info = computeStepInfo(state, 'hunter', []);
+  assert(info.known && info.canShoot === false, `实际 ${JSON.stringify(info)}`);
+});
+
+test('computeStepInfo hunterShot: 猎人身份未知 → 降级', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'wolf' } });
+  const info = computeStepInfo(state, 'hunter', []);
+  assert(info.known === false, `实际 ${JSON.stringify(info)}`);
+});
+
+test('activeNightSteps: 猎人存活时每夜都有猎人步骤，死亡后不出现', () => {
+  const alive = makeState({ playerCount: 3, roles: { 1: 'wolf', 2: 'hunter', 3: 'villager' }, day: 3 });
+  assert(activeNightSteps(alive).includes('hunter'), '存活猎人应有夜晚步骤');
+  const dead = makeState({ playerCount: 3, roles: { 1: 'wolf', 2: 'hunter', 3: 'villager' }, alive: { 2: false } });
+  assert(!activeNightSteps(dead).includes('hunter'), '猎人死亡后不应有夜晚步骤');
+});
+
 test('validateAction: 守卫更换目标不触发连守警告', () => {
   const state = makeState({ playerCount: 3, roles: { 1: 'guard' }, lastGuardTarget: 2 });
   const warnings = validateAction(state, 'guard', { target: 3 });
