@@ -25,7 +25,7 @@ import {
 
 import {
   resolveDawn, buildTriggerQueue, cascadeDeaths, computeStepInfo,
-  validateAction, activeNightSteps, campCounts, detectWin,
+  validateAction, activeNightSteps, shotStatus, campCounts, detectWin,
   pickFirstSpeaker, nextAliveSeat,
 } from './engine.js';
 
@@ -1161,7 +1161,38 @@ function renderNightStepBody(stepId, meta) {
     body = `<div class="step-info-answer"><span class="tag">${targetsLabel}</span></div>${UNKNOWN_INFO_NOTE}`;
   }
 
+  if (stepId === 'wolfkill') body += renderWolfkingShotHtml();
   return { body, confirmDisabled: nightStepTargets.length < meta.targets };
+}
+
+/**
+ * 狼人步骤中各存活狼王的开枪状态。以本步骤已点选的刀口一并预演（刀中狼王情侣会致其殉情）。
+ * 女巫 / 魔术师排在狼人之后时，状态可能随其行动改变。SPEC §9
+ */
+function wolfkingShotStatuses() {
+  const wolfkings = state.players.filter(p => p.alive && (p.effectiveRoleId ?? p.roleId) === 'wolfking');
+  if (!wolfkings.length) return [];
+  const preview = nightStepTargets.length
+    ? { ...state, nightActions: { ...state.nightActions, wolfTarget: nightStepTargets[0] } }
+    : state;
+  return wolfkings.map(p => ({ seat: p.seat, canShoot: shotStatus(preview, p.seat) }));
+}
+
+function renderWolfkingShotHtml() {
+  const statuses = wolfkingShotStatuses();
+  if (!statuses.length) {
+    return (state.roleCounts.wolfking ?? 0) > 0
+      ? '<p class="note">狼王开枪状态：未知身份 — 请手动判断</p>'
+      : '';
+  }
+  const laterSteps = state.nightSteps.slice(state.stepIndex + 1);
+  const caveat = laterSteps.some(id => id === 'witch' || id === 'magician')
+    ? '<p class="note">女巫 / 魔术师尚未行动，开枪状态可能改变</p>'
+    : '';
+  const rows = statuses.map(s => `
+    <div class="step-info-answer"><span class="tag">狼王 ${s.seat}号</span><span class="answer-text">${s.canShoot ? '可以开枪' : '不能开枪'}</span></div>
+  `).join('');
+  return rows + caveat;
 }
 
 /** 女巫步骤：先显示今晚死亡目标，再呈现解药 / 毒药 / 不使用。SPEC §9 */
@@ -2382,10 +2413,19 @@ function confirmNightStep() {
   }
 
   const entry = buildStepLogEntry(stepId, actorSeat, logTargets, resultText);
+  const extraEntries = stepId === 'wolfkill'
+    ? wolfkingShotStatuses().map(s => {
+        const result = s.canShoot ? '可以开枪' : '不能开枪';
+        return {
+          day: state.day, phase: state.phase, type: 'skill',
+          actor: s.seat, targets: [], text: `狼王开枪状态 → ${result}`, result, ts: Date.now(),
+        };
+      })
+    : [];
   const { alertQueue, logAppend } = appendAlerts(stepAlerts);
   const patch = {
     players, nightActions,
-    log: [...state.log, entry, ...logAppend],
+    log: [...state.log, entry, ...extraEntries, ...logAppend],
     stepIndex: state.stepIndex + 1,
     alertQueue,
   };

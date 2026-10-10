@@ -23,7 +23,7 @@
 import {
   resolveDawn, buildTriggerQueue, cascadeDeaths, computeStepInfo,
   bearGrowls, validateAction, activeNightSteps, campCounts, detectWin,
-  pickFirstSpeaker, nextAliveSeat,
+  pickFirstSpeaker, nextAliveSeat, shotStatus,
 } from './engine.js';
 import {
   ROLE_MAP, DEFAULT_NIGHT_ORDER, DEFAULT_RULES, DEFAULT_SETTINGS,
@@ -654,6 +654,32 @@ test('computeStepInfo hunterShot: 猎人身份未知 → 降级', () => {
   const state = makeState({ playerCount: 3, roles: { 1: 'wolf' } });
   const info = computeStepInfo(state, 'hunter', []);
   assert(info.known === false, `实际 ${JSON.stringify(info)}`);
+});
+
+test('shotStatus 狼王: 无事 → 可以开枪', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'wolfking', 2: 'witch', 3: 'villager' }, nightActions: { wolfTarget: 3 } });
+  assert(shotStatus(state, 1) === true);
+});
+
+test('shotStatus 狼王: 被女巫毒 → 不能开枪', () => {
+  const state = makeState({
+    playerCount: 3, roles: { 1: 'wolfking', 2: 'witch', 3: 'villager' },
+    nightActions: { wolfTarget: 3, witchAction: { type: 'poison', target: 1 } },
+  });
+  assert(shotStatus(state, 1) === false);
+});
+
+test('shotStatus 狼王: 情侣被刀 → 殉情 → 不能开枪', () => {
+  const state = makeState({
+    playerCount: 3, roles: { 1: 'wolfking', 2: 'villager', 3: 'villager' },
+    lovers: [[1, 2]], nightActions: { wolfTarget: 2 },
+  });
+  assert(shotStatus(state, 1) === false);
+});
+
+test('shotStatus 狼王: 开枪已消耗 → 不能开枪', () => {
+  const state = makeState({ playerCount: 3, roles: { 1: 'wolfking' }, players: { 1: { skills: { shot: false } } } });
+  assert(shotStatus(state, 1) === false);
 });
 
 test('activeNightSteps: 猎人存活时每夜都有猎人步骤，死亡后不出现', () => {
