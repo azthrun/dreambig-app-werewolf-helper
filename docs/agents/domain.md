@@ -4,7 +4,7 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- **`SPEC.md`** at the repo root — the authoritative technical specification for this project. Read it before any implementation work; it carries the decision record (辅助型 vs 裁决型、无弹窗定义、结算引擎算法、19 角色数据模型) that the code is meant to realise.
+- **`SPEC.md`** at the repo root — the authoritative technical specification for this project. Read it before any implementation work; it carries the decision record (辅助型 vs 裁决型、弹窗规则（仅玩家面板一处模态）、结算引擎算法、19 角色数据模型) that the code is meant to realise.
 - **`CONTEXT.md`** at the repo root, if it exists.
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in.
 
